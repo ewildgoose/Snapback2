@@ -7,11 +7,15 @@ use Data::Dumper;
 
 sub initialize {
 	my @scripts = map { "scripts/$_" } qw(
+		snap_charge
 		snapback_loop
 		snapback2
 	);
 	my %X;
 	$X{INSTALLDIRS}	= "perl";
+	$X{clean} = {
+		FILES => join(" ", 'scripts/initp.pl', @scripts),
+	};
 	$X{EXE_FILES}	= [ @scripts ];
 	$X{PL_FILES}	= { 'relocate.util' => [ @scripts ] };
 	mk_initp(\%X);
@@ -32,19 +36,17 @@ sub mk_initp {
 
 WriteMakefile(
     NAME		    => 'Snapback2',
-	clean    => {
-				FILES => "scripts/initp.pl scripts/snapback2 scripts/snapback_loop",
-			   },
     VERSION_FROM	=> 'scripts/snapback2.PL', # finds $VERSION
 	'MAN1PODS' => {
 		'scripts/snapback2'    => '$(INST_MAN1DIR)/snapback2.$(MAN1EXT)',
 		'scripts/snapback_loop'    => '$(INST_MAN1DIR)/snapback_loop.$(MAN1EXT)',
+		'scripts/snap_charge'    => '$(INST_MAN1DIR)/snap_charge.$(MAN1EXT)',
     },
 	EXE_FILES => [],
 	PL_FILES => {},
 	CONFIGURE => \&initialize,
     PREREQ_PM		=> { Config::ApacheFormat => 1.2 }, # e.g., Module::Name => 1.1
     ($] >= 5.005 ?    ## Add these new keywords supported since 5.005
-      (ABSTRACT => 'Snapback2 -- automated rsync backup', # retrieve abstract from module
+      (ABSTRACT => 'Snapback2 -- automated rsync backup',
        AUTHOR     => 'Mike Heins <snapback2@perusion.org>') : ()),
 );

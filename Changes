@@ -3,3 +3,12 @@ Revision history for Snapback2.
 0.01  Thu Jan  1 14:35:59 2004
 	- original version
 
+0.02  Thu Jan  1 15:30:00 2004
+	- first CPAN release
+	- adds DestinationList for multiple backup destinations
+
+0.03  
+	- second CPAN release
+	- cleanup of README and other docs
+	- add snap_charge script.
+	

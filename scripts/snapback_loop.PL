@@ -15,6 +15,29 @@ This script just loops looking for a file in the communication
 directory, by default /tmp/backups. It then calls snapback2 with the
 specified configuration file name root based in /etc/snapback.
 
+It exists to allow someone to start an ssh-agent, then
+walk away for unattended backup over a long period.
+
+You would typically start the script with a few commands. For
+bash/ksh/sh:
+
+	## type ssh key passphrase when prompted
+	ssh-agent > ~/.sshenv
+	. ~/.sshenv
+	ssh-add 
+	snapback_loop >>/tmp/snapback_loop.log 2>&1 &
+
+or tcsh/csh:
+
+	## type ssh key passphrase when prompted
+	ssh-agent -c > ~/.sshenv
+	source ~/.sshenv
+	ssh-add 
+	snapback_loop >>& /tmp/snapback_loop.log
+
+The author has a machine dedicated to Snapback2, and 
+this is in the rc.local so it starts on boot.
+
 To initiate a backup, you just put entries in crontab like:
 
  18 * * * * touch /tmp/backups/snapback
@@ -79,7 +102,7 @@ use strict;
 
 use vars qw/$VERSION/;
 
-$VERSION = '0.2';
+$VERSION = '0.3';
 
 my $USAGE = <<EOF;
 snapback_loop -- loop to launch snapback2
@@ -195,7 +218,7 @@ my $SNAPBACK_OPTS =  get_cfg('SnapbackOpts') || '';
 
 ## Number of seconds to loop on, this machine does nothing else so is
 ## short
-my $LOOP_DELAY = 2;
+my $LOOP_DELAY = get_cfg('LoopDelay') || 10;
 my $ERROR_ADDRESS = 'root';
 my $FROM_ADDRESS =  'root';
 my $MAIL_PROG     = '/usr/sbin/sendmail';

@@ -1,24 +1,26 @@
-Snapback2 version 0.01
+Snapback2 version 0.03
 ======================
 
 The snapback2 script is an enhancement of Art Mulder's original
-snapback script based on Mike Rubel's research into using rsync
+snapback script, which was based on Mike Rubel's research into using rsync
 as a backup method. It greatly revamps configuration, and has the 
 following features:
 
 	* Makes rsync snapshot backups on an hourly, daily, monthly,
 	  and yearly basis.
+	* Changes configuration to Apache-style plain-text configuration
+	  files.
 	* Can be repeatedly called and if AutoTime is set, it will only
 	  make backups when the proper amount of time has passed.
 	* Allows multiple backup destinations to split the backup
-	  over multiple disks for reliablility.
-	* 
+	  over multiple disks for reliablility. Will alternate between
+	  them on a least-recently-done basis.
 
-There is documentation embedded in the script file
-README file from a module distribution so that people browsing the
-archive can use it get an idea of the modules uses. It is usually a
-good idea to provide version information here so that people can
-decide whether fixes for the module are worth downloading.
+There is documentation embedded in the script file -- it is installed
+as a man page by default.
+
+A couple of support scripts, snapback_loop and snap_charge, are
+included.
 
 INSTALLATION
 
