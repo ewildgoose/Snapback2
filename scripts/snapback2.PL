@@ -1,15 +1,12 @@
-#!/usr/bin/perl
+#!/usr/local/bin/perl
 ##!~_~perlpath~_~
 
 ## ---------- ---------- ---------- ---------- ---------- ----------
 ## snapback2 -- 1.Jan.2004 -- Mike Heins
 ## - rsync and hard-link backup script, enhanced
-## - based on research by Mike Rubel
+## - based on research by Mike Rubel, see it at
+##   http://www.mikerubel.org/computers/rsync_snapshots/
 ## - based on original snapback by Art Mulder
-##   www.http://www.mikerubel.org/computers/rsync_snapshots/
-## - This works on a "pull" basis.  The backup server runs this
-##   script and rsync's to the client machine(s) to backup the
-##   requested directories.
 ##
 ## ---------- ---------- ---------- ---------- ---------- ----------
 ## snapback -- 15.May.2002 -- Art Mulder
@@ -39,7 +36,7 @@ use strict;
 
 use vars qw/$VERSION/;
 
-$VERSION = '0.3';
+$VERSION = '0.4';
 
 =head1 NAME
 
@@ -80,6 +77,10 @@ storage space consumed by the image.
 
 See www.http://www.mikerubel.org/computers/rsync_snapshots/ for detailed
 information on the principles used.
+
+The script works on a I<pull> basis. The backup server runs this script
+and initiates rsync connections (usually via SSH) to the client
+machine(s) to backup the requested directories.
 
 Apache-style configuration files are used. A configuration file for
 a basic backup might look like
@@ -245,6 +246,16 @@ The file where byte counts are logged in the format
 where YYYYMMDD is the date in quasi-ISO format and N is the number
 of bytes read. This allows monitoring of bandwidth used for a particular
 backup host, possibly for a bandwidth-based charging mechnism.
+
+=item Compress
+
+The rsync program can compress its transfers. If the backup is going
+over a high-speed internal network, this may not be a win. Set this
+directive to I<No> to turn off compression:
+
+	Compress No
+
+Default is C<Yes>.
 
 =item Cp
 
@@ -437,6 +448,31 @@ In other words, don't mess with this.
 The name of the file where backup runs are logged. Default
 is I</var/log/snapback.log>.
 
+=item ManyFiles
+
+If the backup target has a large number of files, the backup
+system overhead
+to remove the outdated backup directory and hard-link the new backup directory
+will be considerable.
+
+This option, when set to I<Yes> in the C<Backup> container (or globally)
+will cause the outdated backup directory to be moved to the prospective
+next backup directory. Rsync then operates on that directory, and while
+transfer bandwidth might be greater
+
+To set in your C<snapback.conf>:
+
+	ManyFiles Yes
+
+Once again, this is usually in the individual backup container.
+
+The C<ManyFiles> directive is not compatible with C<RetainPermissions>
+and sets it off if active.
+
+You should choose this option when you have a large number
+of small files and you don't have an overriding need to retain
+ownership and permissions on the old backups.
+
 =item MonthlyDir
 
 The root name of the monthly backup directory, default I<monthly>.
@@ -457,6 +493,26 @@ The amount of time the current time must exceed the previous backup
 modification time before a backup will be done, when C<AutoTime> is
 on. Default is C<5 minutes>.
 
+=item RetainPermissions
+
+Normally C<snapback2> changes the permissions and ownership of backed-up
+files in the newest backup to match the current state of the file
+system. Should you need to restore an earlier backup, those settings
+might have been changed.
+
+When C<RetainPermissions> is active, the rsync program will be called
+with the C<--link-dest> option (providing there is a previous backup to
+link to). It will not link files where ownership and permissions have
+changed. It will copy locally and change the permissions.
+
+This is the default, and to turn it off you must set:
+
+	RetainPermissions No
+
+This option is automatically turned off when C<ManyFiles> is 
+set, and this is the main time you will not want C<RetainPermissions>
+active. It is recommended that you keep the default.
+
 =item Rm
 
 Full path to the GNU C<rm> program. Default is I</bin/rm>.
@@ -469,9 +525,29 @@ Full path to the C<rsync> program. Default is I<rsync>.
 
 The options for the rsync program. Default is
 
-  -avz -e ssh --force --delete-excluded  --one-file-system --delete
+  -av --force --delete-excluded  --one-file-system --delete
 
-Play with this at your own risk. 8-)
+The following options are set by C<snapback2> options:
+
+=over 4
+
+=item -z
+
+Set by the C<Compress> option. 
+
+=item -e
+
+Set by the C<RsyncShell> option. If C<RsyncShell> is I<none>, no
+-e option is passed. 
+
+=item --link-dest=DIR
+
+Set when C<RetainPermissions> is active. The C<DIR> is usually
+C<../hourly.1>.
+
+=back
+
+Play with C<RsyncOptions> at your own risk. 8-)
 
 =item SendMail
 
@@ -518,6 +594,13 @@ Fails if one of those is not found.
 
 Turns on debug output. If C<DebugFile> is set, will go there, otherwise
 goes to the standard error output.
+
+=item -l logfile
+
+Normally snapback2 creates a temporary file named /tmp/rsyncNNNNN,
+where NNNNN is the process ID. This parameter passes a log file
+to use instead. It will be created if it does not exist, and appended to
+if it does.
 
 =item -p PATTERN
 
@@ -568,6 +651,7 @@ my %Locale;
 my %Defaults = (
 	AlwaysEmail => 'No',
 	ChargeFile => '/var/log/snapback.charges',
+	Compress => 1,
 	cp => "/bin/cp",
 	CreateDir => 'Yes',
 	DailyDir => 'daily',
@@ -577,17 +661,22 @@ my %Defaults = (
 	MustExceed => '5 minutes',
 	mv => "/bin/mv",
 	Myhost => hostname(),
+	RsyncShell        => 'ssh',
+	RetainPermissions => 1,
 	rm => "/bin/rm",
-	RsyncOpts => "-avz -e ssh --force --delete-excluded  --one-file-system --delete",
+	RsyncOpts => "-av --force --delete-excluded  --one-file-system --delete",
 	sendmail => "/usr/sbin/sendmail",
 	WeeklyDir => 'weekly',
 );
 
 my %Boolean = qw(
-	CreateDir        1
-	AlwaysEmail      1
-	AutoTime		 1
-	LiteralDirectory 1
+	AlwaysEmail       1
+	AutoTime		  1
+	Compress          1
+	CreateDir         1
+	LiteralDirectory  1
+	ManyFiles         1
+	RetainPermissions 1
 );
 
 for(grep /[A-Z]/, keys %Defaults) {
@@ -611,7 +700,7 @@ $progname =~ s:.*/::;
 my %opt;
 #---------- ---------- ---------- ---------- ---------- ----------
 # Process command-line Arguments + Options
-getopts('c:dfp:P:', \%opt) ||  die usage();
+getopts('c:dfl:p:P:', \%opt) ||  die usage();
 
 if($opt{h}) {
 	usage();
@@ -789,6 +878,25 @@ sub get_cfg {
 	return $val;
 }
 
+sub build_rsync_opts {
+	my @opts;
+	push @opts, get_cfg('RsyncOpts');
+
+	my $rsync_sh = get_cfg('RsyncShell');
+	log_debug("rsync shell=$rsync_sh");
+	if($rsync_sh and lc($rsync_sh) ne 'none') {
+		unshift @opts, "-e $rsync_sh";
+	}
+
+	my $compress = get_cfg('Compress');
+	log_debug("compress=$compress");
+	unshift @opts, "-z" if $compress;
+
+	my $opts = join " ", @opts;
+    log_debug("build_rsync_opts: $opts");
+	return $opts;
+}
+
 my $myhost = get_cfg('myhost');
 
 if ($opt{d} or get_cfg 'debug' )  {
@@ -799,8 +907,6 @@ my $cp    = get_cfg('cp')    || 'cp';
 my $mv    = get_cfg('mv')    || 'mv';
 my $rm    = get_cfg('rm')    || 'rm';
 my $rsync = get_cfg('rsync') || 'rsync';
-
-my $r_opts= get_cfg('rsyncopts');
 
 # Sanity-check the config file.
 die "Malformed config file: Hourlies must be > 0\n" unless get_cfg('hourlies');
@@ -854,9 +960,10 @@ sub log_debug {
 
 my $errors_logged = 0;
 
-my $rsync_log = "/tmp/rsync_log$$";
-system ("touch $rsync_log");
-
+my $rsync_log = $opt{l} || "/tmp/rsync_log$$";
+open RSYNC, ">>$rsync_log"
+	or die "Cannot write rsync log $rsync_log: $!\n";
+close RSYNC;
 
 log_error "$myname : $myhost\n";
 my @start_time = localtime();
@@ -1145,7 +1252,7 @@ sub do_backup {
 			$excl  = [ split /[\s,]+/, $excl ];
 		}
 		for (@$excl) {
-			push @excl, qq{--exclude=\\"$_\\"};
+			push @excl, qq{--exclude="$_"};
 		}
 		$e_opts = join " ", @excl;
 	}
@@ -1153,54 +1260,101 @@ sub do_backup {
   ## ----------
   ## STEP 3: Process Hourly backups
 
-  ## 3.1: Rotate older backups
+	## Figure out which rotation method
+	my $many_files = get_cfg('ManyFiles');
+	my $retain;
 
-  log_debug "DEBUG: do_rotate($hr_backup,$backupdir)";
-  do_rotate($hr_backup, $backupdir, $rotate_all);
+	if(get_cfg('RetainPermissions')) {
+		## This puts the kibosh on ManyFiles
+		if($many_files) {
+			log_error(
+				"%s and %s are mutually exclusive, unsetting %s",
+				'RetainPermissions', 
+				'ManyFiles', 
+				'RetainPermissions', 
+			);
+		}
+		else {
+			$retain = 1;
+			$rotate_all = 1;
+		}
+	}
 
-  ## 3.2: Hard link from the newest backup: 
-  if (-d "$backupdir.0") { 
-    log_debug "DEBUG: Hard Link newest backup\n";
-    system("$cp -al $backupdir.0 $backupdir.1") == 0
-      or die "FAILED: $cp -al $backupdir.0 $backupdir.1";
-  } 	
+	## 3.1: Rotate older backups
 
-  ## 3.3:
-  ## Now rsync from the client dir into the latest snapshot 
-  ## (notice that rsync behaves like cp --remove-destination by
-  ## default, so the destination is unlinked first.  If it were not
-  ## so, this would copy over the other snapshot(s) too!
+	log_debug "DEBUG: do_rotate($hr_backup,$backupdir)";
+	
+	if($many_files) {
+		do_rotate_reuse($hr_backup, $backupdir, $rotate_all);
+	}
+	else {
+		do_rotate($hr_backup, $backupdir, $rotate_all);
+	}
 
-  log_debug "DEBUG: $rsync $r_opts $fqdn:$dir $backupdir.0\n";
-  log_arbitrary $rsync_log, "client $fqdn\n";
-  log_arbitrary $rsync_log, "--\n$rsync $r_opts $e_opts $fqdn:$dir $backupdir.0\n\n"; 
-  system ("$rsync $r_opts $fqdn:$dir $backupdir.0 >> $rsync_log") == 0
-    or die "FAILED: $rsync $r_opts $fqdn:$dir $backupdir.0 >> $rsync_log";
+	## 3.2: Hard link from the newest backup: 
+	if (! $many_files and ! $retain and -d "$backupdir.0") { 
+		log_debug "DEBUG: Hard Link newest backup\n";
+		system("$cp -al $backupdir.0 $backupdir.1") == 0
+			or die "FAILED: $cp -al $backupdir.0 $backupdir.1";
+	} 	
 
-  # update the mtime of hourly.0 to reflect the snapshot time
-  system ("touch $backupdir.0");
+	my $extra_ropts = '';
+	if($retain and -d "$backupdir.1") {
+		my $bdir = "$backupdir.1";
+		$bdir =~ s:.*/::;
+		$e_opts .= " --link-dest=../$bdir";
+	}
 
-  ## ----------
-  ## STEP 4: Process Daily/Weekly/Monthly backups
-  ## -- simpler than above, the rsync is already done.  We just need
-  ## to "rotate" the old backups, and then hard link to the
-  ## newest hourly backup from yesterday.  NOTE that will be the
-  ##  .1 version, not the .0 version -- the .0 version is from today.
+	## Get the rsync options
+	my $r_opts = build_rsync_opts();
 
-  my $yesterdays_hourly = "$backupdir.0";
-  $rotate_all=1;	## flag for do_rotate routine
+	my $rsh = lc get_cfg('RsyncShell');
 
-  ## Daily Backups - similar steps to above, rotate, hard link
-  if ($do_dailies) {
-    $backupdir = $prefix . $daily_dir;
-    do_rotate(get_cfg('Dailies'), $backupdir, $rotate_all);
+	my $xfer_dir;
+	if (! $rsh or $rsh eq 'none') {
+		$xfer_dir = $dir;
+	}
+	else {
+		$xfer_dir = "$fqdn:$dir";
+	}
 
-    ## No rsync necessary, just hard-link from the most-recent hourly.
-    if (-d "$yesterdays_hourly") { 
-      system("$cp -al $yesterdays_hourly $backupdir.0") == 0
-      or die "FAILED: $cp -al $yesterdays_hourly $backupdir.0";
-    } 	
-  }
+	## 3.3:
+	## Now rsync from the client dir into the latest snapshot 
+	## (notice that rsync behaves like cp --remove-destination by
+	## default, so the destination is unlinked first.  If it were not
+	## so, this would copy over the other snapshot(s) too!
+
+	my $command_line = "$rsync $r_opts $e_opts $xfer_dir $backupdir.0";
+	log_debug "DEBUG: $command_line\n";
+	log_arbitrary $rsync_log, "client $fqdn\n";
+	log_arbitrary $rsync_log, "--\n$command_line\n\n"; 
+	system ("$command_line >> $rsync_log") == 0
+	  or die "FAILED: $command_line >> $rsync_log";
+
+	# update the mtime of hourly.0 to reflect the snapshot time
+	system ("touch $backupdir.0");
+
+	## ----------
+	## STEP 4: Process Daily/Weekly/Monthly backups
+	## -- simpler than above, the rsync is already done.  We just need
+	## to "rotate" the old backups, and then hard link to the
+	## newest hourly backup from yesterday.  NOTE that will be the
+	##  .1 version, not the .0 version -- the .0 version is from today.
+
+	my $yesterdays_hourly = "$backupdir.0";
+	$rotate_all=1;	## flag for do_rotate routine
+
+	## Daily Backups - similar steps to above, rotate, hard link
+	if ($do_dailies) {
+	  $backupdir = $prefix . $daily_dir;
+	  do_rotate(get_cfg('Dailies'), $backupdir, $rotate_all);
+
+	  ## No rsync necessary, just hard-link from the most-recent hourly.
+	  if (-d "$yesterdays_hourly") { 
+		system("$cp -al $yesterdays_hourly $backupdir.0") == 0
+		or die "FAILED: $cp -al $yesterdays_hourly $backupdir.0";
+	  } 	
+	}
 
   ## Weekly Backups
   if ($do_weeklies) {
@@ -1271,6 +1425,77 @@ sub do_rotate {
   }
 
 }
+
+sub do_rotate_reuse {
+  my ($maxbackups, $dir, $rotate_all) = @_;
+  
+  ## Step 1: nothing to do if they're only keeping 1 copy
+  if (($maxbackups == 1) && ($rotate_all==0)) { return ; }
+
+  ## Step 2: move the oldest copy to .TMP.  (eg: $dir.3)
+  my $count = $maxbackups - 1;
+  my $countplus = $maxbackups - 1;
+
+  if (-d "$dir.TMP") {
+    log_error "$dir.TMP directory existed, removing.\n";
+    log_debug "DEBUG: $rm -rf $dir.TMP\n";
+    system("$rm -rf $dir.TMP") == 0
+      or die "FAILED: $rm -rf $dir.$count";
+    }
+
+  log_debug("DEBUG: called do_rotate with maxbackups=$maxbackups rotate_all=$rotate_all");
+  log_debug("DEBUG: do_rotate count=$count countplus=$countplus");
+  ## Now using John Pelan's suggestion to rotate least-recent to
+  ## .0 for hourlies
+  if(-d "$dir.$count") {
+	    if (! $rotate_all) {
+			log_debug "DEBUG: $mv $dir.$count $dir.TMP\n";
+			system("$mv $dir.$count $dir.TMP") == 0
+			  or die "FAILED: $mv $dir.$count $dir.TMP";
+		}
+	    else {
+			log_debug "DEBUG: $rm -rf $dir.$count\n";
+			system("$rm -rf $dir.$count") == 0
+				or die "FAILED: $rm -rf $dir.$count";
+		}
+  }
+  $count--;
+
+  log_debug("DEBUG: do_rotate count=$count countplus=$countplus");
+
+  ## Step 3: rotate/rename the "middle" copies (eg: $dir.1,2,3)
+  ## Now using Jean Phelan's suggestion to move an expired 
+  ## copy to .0 so linking is reduced.
+
+  my $smallest = 0;
+
+  while ($count >= $smallest) {
+    #log_debug "DEBUG: count = $count";
+	log_debug("DEBUG: do_rotate count=$count countplus=$countplus");
+    if (-d "$dir.$count") { 
+      log_debug "DEBUG: $mv  $dir.$count $dir.$countplus\n";
+      system("$mv $dir.$count $dir.$countplus" ) == 0
+      	or die "FAILED: $mv $dir.$count $dir.$countplus";
+    }
+    $count--; $countplus--;
+  }
+
+  if(! $rotate_all) {
+  	if(-d "$dir.TMP") {
+		log_debug "DEBUG: $mv $dir.TMP $dir.0\n";
+		system("$mv $dir.TMP $dir.0") == 0
+		  or die "FAILED: $mv $dir.TMP $dir.0";
+	}
+	elsif (-d "$dir.1") { 
+	  ## 3.2: Hard link from the newest backup: 
+		log_debug "DEBUG: Hard Link newest backup\n";
+		system("$cp -al $dir.1 $dir.0") == 0
+		  or die "FAILED: $cp -al $dir.0 $dir.1";
+	}
+  }
+
+}
+
 
 ## ---------- ---------- ---------- ---------- ---------- ----------
 ## Need a local "die" equivalent function, to 

@@ -1,14 +1,23 @@
 Revision history for Snapback2.
 
-0.01  Thu Jan  1 14:35:59 2004
+0.01  Thu Jan  1 14:35:59 EST 2004
 	- original version
 
-0.02  Thu Jan  1 15:30:00 2004
+0.02  Thu Jan  1 15:30:00 EST 2004
 	- first CPAN release
 	- adds DestinationList for multiple backup destinations
 
-0.03  
+0.03  Thu Jan  2 01:22:03 EST 2004
 	- second CPAN release
 	- cleanup of README and other docs
 	- add snap_charge script.
 	
+0.04 -- Fri Jan  2 13:23:11 EST 2004
+	- third CPAN release
+	- cleanup of README and other docs
+	- enhance snapback_loop to retain rsync logs
+	- add rsync --link-dest capability as RetainPermissions
+	- add John Pelan's directory move suggestion as ManyFiles
+	- fix broken Exclude option
+	- Add Compress option to allow turning off -z
+	- Add RsyncShell option to allow same-machine or NFS copies without rsync

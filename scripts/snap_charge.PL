@@ -1,5 +1,7 @@
 #!/usr/bin/perl
 
+use vars qw/$VERSION/;
+$VERSION = '0.1';
 use Getopt::Std;
 use POSIX qw/strftime/;
 

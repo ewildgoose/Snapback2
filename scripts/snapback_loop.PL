@@ -102,7 +102,7 @@ use strict;
 
 use vars qw/$VERSION/;
 
-$VERSION = '0.3';
+$VERSION = '0.4';
 
 my $USAGE = <<EOF;
 snapback_loop -- loop to launch snapback2
@@ -149,7 +149,7 @@ my %Defaults = (
 	AlwaysEmail => 'No',
 	LoopDirectory => '/tmp/backups',
 	sendmail => "/usr/sbin/sendmail",
-	SnapbackExecutable => '/usr/local/sbin/snapback2',
+	SnapbackExecutable => '/usr/local/bin/snapback2',
 	SnapbackOpts => '',
 );
 
@@ -223,9 +223,8 @@ my $ERROR_ADDRESS = 'root';
 my $FROM_ADDRESS =  'root';
 my $MAIL_PROG     = '/usr/sbin/sendmail';
 
-if(! -d $COMM_DIR) {
-	File::Path::mkpath($COMM_DIR, 1, 0700);
-}
+File::Path::mkpath($COMM_DIR, 1) unless -d $COMM_DIR;
+File::Path::mkpath($ERR_DIR, 1) unless -d $ERR_DIR;
 
 sub mail_error {
 	my ($subject, $msg) = @_;
@@ -266,28 +265,31 @@ for(;;) {
 			rename $origname, $run_name;
 		}
 
+		open OUTPUT, ">> $run_name"
+			or die "Cannot write log file $run_name: $!\n";
+
 		my $bdate     = strftime("%Y%m%d", localtime());
 		my $begintime = strftime("%Y-%m-%d-%H-%M-%S", localtime());
-		system "$SNAPBACK $SNAPBACK_OPTS $_";
+		my $cmd_line = "$SNAPBACK $SNAPBACK_OPTS -l $run_name $_";
+		system $cmd_line;
 		my $status = $?;
 		my $err = $!;
 		my $endtime = strftime("%Y-%m-%d-%H-%M-%S", localtime());
-		unlink $run_name;
+		my $rename_to;
 		if($? != 0) {
 			my $ecode = $status >> 8;
-			open ERR, "> $ERR_DIR/$bname.$endtime"
-				or die "Can't open $ERR_DIR/$bname.$endtime: $!\n";
-			print ERR "Snapback error $ecode (status=$status, text=$err) at $endtime\n";
-			close ERR;
+			print OUTPUT "\nERROR: Snapback error $ecode (status=$status, text=$err) at $endtime\nCommand line was:\n\t$cmd_line\n";
+			$rename_to = "$ERR_DIR/$bname.$endtime";
 		}
 		else {
 			my $done_name = "$DONE_DIR/$bdate";
 			File::Path::mkpath($done_name) unless -d $done_name;
-			open DONE, "> $done_name/$bname.$endtime"
-				or die "Can't open $done_name/$bname.$endtime: $!\n";
-			print DONE "Snapback $bname complete.\n";
-			close DONE;
+			print OUTPUT "Snapback $bname complete.\n";
+			$rename_to = "$done_name/$bname.$endtime";
 		}
+		close OUTPUT;
+		File::Copy::move($run_name, $rename_to)
+				or die "Cannot rename $run_name to $rename_to: $!\n";
 	}
 	sleep 2;
 }
