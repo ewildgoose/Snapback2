@@ -28,15 +28,14 @@
 ## Variables and other Setups
 
 use Getopt::Std;        ## standard command-line processing functions
-use Sys::Hostname;
+use Backup::Snapback;
 use File::Path;
-use Config::ApacheFormat;
 use POSIX qw/strftime/;
 use strict;
 
 use vars qw/$VERSION/;
 
-$VERSION = '0.4';
+$VERSION = '0.5';
 
 =head1 NAME
 
@@ -45,6 +44,184 @@ snapback2 -- rsync and hard-link backup script
 =head1 SYNOPSIS
 
   snapback2 [-c configfile] [-df] [-p PAT] [-P PAT] [configfile-base]
+
+=cut
+
+## more docs at end
+
+
+## Where log entries go
+my @log;
+
+my $myname = $0;
+my $progname = $myname;
+$progname =~ s:.*/::;
+
+my %opt;
+#---------- ---------- ---------- ---------- ---------- ----------
+# Process command-line Arguments + Options
+getopts('c:dfl:p:P:', \%opt) ||  die usage();
+
+if($opt{h}) {
+	usage();
+	exit 2;
+}
+
+my $debug = 0;
+
+my @configs; 
+
+for(@ARGV) {
+	if(-f "/etc/snapback/$_.conf") {
+		push @configs, "/etc/snapback/$_.conf";
+	}
+	elsif(-f "/etc/snapback/$_") {
+		push @configs, "/etc/snapback/$_";
+	}
+	
+}
+
+unshift @configs, $opt{c} if $opt{c};
+@configs = '' unless @configs;
+
+my $myhost;
+
+for my $configfile (@configs) {
+	my $snap = new Backup::Snapback
+					configfile => $configfile,
+					debug => $opt{d},
+					commandlog => $opt{l},
+				;
+
+	$myhost = $snap->config(-myhost);
+
+	$debug = 1 if $snap->config(-debug);
+
+	my @backups = $snap->backups();
+
+	#print Dumper(\@backups);
+
+	my $client_re;
+	## Check if we have a pattern of clients to apply to
+	if($opt{p}) {
+		$client_re = qr/$opt{p}/
+			or die "Bad regex in -p option '$opt{p}'.\n";
+	}
+
+	my $dir_re;
+	## Check if we have a pattern of client directories to apply to
+	if($opt{P}) {
+		$dir_re = qr/$opt{P}/
+			or die "Bad regex in -P option '$opt{P}'.\n";
+	}
+
+	for my $bu (@backups) {
+		if($client_re) {
+			next unless $bu =~ $client_re;
+		}
+		my $cl = $snap->set_backup($bu);
+		my @dirs = $snap->directories();
+
+		if($dir_re) {
+			@dirs = grep $_ =~ $dir_re, @dirs;
+		}
+		
+		for my $d (@dirs) {
+			my $dir = $snap->set_directory($d)
+				or die "bad directory $d.\n";
+			$snap->backup_directory($dir);
+		}
+
+	}
+
+	my $email;
+	unless($email = $snap->config(-AdminEmail)) {
+		$snap->log_debug("No email sent, AdminEmail set to none.");
+		next;
+	}
+	my $logfile = $snap->config(-CommandLog);
+	my $subject;
+	my $opt;
+	if($snap->{_errors}) {
+		$subject = "$myhost snapback2 results on error";
+	}
+	elsif ( $snap->config(-AlwaysEmail) ) {
+		$subject = "$myhost snapback2 results on success";
+	}
+	next unless $subject;
+	my $sendmail = $snap->config(-sendmail) || '/usr/sbin/sendmail';
+	my %opt = (
+		sendmail => $sendmail,
+		subject => $subject,
+		to => $email,
+	);
+
+	my $log_ary = $snap->{_log} || [];
+	open CMDLOG, $snap->config(-commandlog)
+		or carp("Can't open command log: $!\n");
+	send_mail( join("", @$log_ary, <CMDLOG>), \%opt);
+	close CMDLOG;
+
+}
+
+sub send_mail {
+    my($body, $opt) = @_;
+
+	$opt ||= {};
+
+	$opt->{to} ||= 'root';
+
+	$opt->{subject} ||= "Snapback results for $myhost";
+
+	my %non_header = qw( sendmail  1 );
+	my @headers;
+    
+	for(keys %$opt) {
+		my $hdr = $_;
+		next if $non_header{$_};
+		$hdr =~ s/_+/-/g;
+		$hdr =~ s/-+/-/g;
+		$hdr =~ s/(\w+)/\u$1/g;
+		push @headers, "$hdr: $opt->{$_}";
+	}
+	warn("send_mail: to=$opt->{to} subj=$opt->{subject}\n") if $opt{d};
+
+    my $ok = 0;
+    my $none;
+    my $using = $opt->{sendmail};
+
+    if($using =~ /^(none|Net::SMTP)$/i) {
+        $none = 1;
+        $ok = 1;
+    }
+
+    SEND: {
+        last SEND if $none;
+        open(MVMAIL,"|$using -t") or last SEND;
+        my $mime = '';
+        for(@headers) {
+            s/\s*$/\n/;
+            print MVMAIL $_
+                or last SEND;
+        }
+		print MVMAIL "\n";
+        print MVMAIL $body
+            or last SEND;
+		close MVMAIL or last SEND;
+        $ok = ($? == 0);
+    }
+
+	if (!$ok) {
+        warn("Unable to send mail using %s\nTo: %s\nSubject: %s\n\n%s",
+                $using,
+                $opt->{to},
+                $opt->{subject},
+                $body,
+        );
+    }
+
+	return $ok;
+}
 
 =head1 DESCRIPTION
 
@@ -75,7 +252,7 @@ only a link is necessary, taking very little space. It is possible to
 create a complete yearly backup in just over 2x the actual
 storage space consumed by the image. 
 
-See www.http://www.mikerubel.org/computers/rsync_snapshots/ for detailed
+See http://www.mikerubel.org/computers/rsync_snapshots/ for detailed
 information on the principles used.
 
 The script works on a I<pull> basis. The backup server runs this script
@@ -107,9 +284,9 @@ a basic backup might look like
 		Directory /etc/
 		Directory /var/lib/mysql/
 		Directory /var/lib/pgsql/
-		<BackupDirectory /home/work/>
+		<Directory /home/work/>
 			Hourlies 4
-		</BackupDirectory>
+		</Directory>
 	</Backup>
 
 	<Backup jean.perusion.com>
@@ -178,7 +355,7 @@ For example:
 
 Both backup configurations use C<jean.perusion.com> as the target machine.
 
-=item BackupDirectory
+=item Directory
 
 This is contained within a C<Backup> block, and is an alternate method
 of specifying a C<Directory>. The parameter is the directory name. The
@@ -193,14 +370,16 @@ For example:
 		Hourlies 4
 		Directory /etc/
 		Directory /var/lib/mysql/
-		<BackupDirectory /var/lib/catalogs/shop/orders>
+		<Directory /var/lib/catalogs/shop/orders>
 			Destination /mnt/backup1/orders
 			Hourlies 24
-		</Backup>
+		</Directory>
 	</backup>
 
 This allows a real hourly backup of a directory where frequent backups
 are needed, while cutting down the frequency of the main backup.
+
+=back
 
 =head2 Other directives
 
@@ -246,6 +425,9 @@ The file where byte counts are logged in the format
 where YYYYMMDD is the date in quasi-ISO format and N is the number
 of bytes read. This allows monitoring of bandwidth used for a particular
 backup host, possibly for a bandwidth-based charging mechnism.
+
+Unless C<RsyncVerbose> is set, also sets the C<--stats> option
+so that transfer statistics can be captured.
 
 =item Compress
 
@@ -386,7 +568,7 @@ etc.
 
 The directory to be backed up. It will be created on the C<Destination>,
 and hourly.N, daily.N, weekly.N, and monthly.N directories will be
-maintained there. See also C<BackupDirectory>.
+maintained there. See also C<Directory>.
 
 Only valid within a <Backup host> block.
 
@@ -428,7 +610,7 @@ To include only a single file:
 
 	Include clients/something.conf
 
-The file specification is based in C<ServerRoot>.
+The file specification is based in C<SnapbackRoot>.
 
 =item LiteralDirectory
 
@@ -525,19 +707,15 @@ Full path to the C<rsync> program. Default is I<rsync>.
 
 The options for the rsync program. Default is
 
-  -av --force --delete-excluded  --one-file-system --delete
+  -a --force --delete-excluded  --one-file-system --delete
 
 The following options are set by C<snapback2> options:
 
 =over 4
 
-=item -z
-
-Set by the C<Compress> option. 
-
 =item -e
 
-Set by the C<RsyncShell> option. If C<RsyncShell> is I<none>, no
+Set by the C<RsyncShell> directive. If C<RsyncShell> is I<none>, no
 -e option is passed. 
 
 =item --link-dest=DIR
@@ -545,9 +723,27 @@ Set by the C<RsyncShell> option. If C<RsyncShell> is I<none>, no
 Set when C<RetainPermissions> is active. The C<DIR> is usually
 C<../hourly.1>.
 
+=item --stats
+
+Set by ChargeFile if -v is not in force, so that transfer stats can
+be captured.
+
+=item -v
+
+Set by the C<RsyncVerbose> directive. 
+
+=item -z
+
+Set by the C<Compress> directive. 
+
 =back
 
-Play with C<RsyncOptions> at your own risk. 8-)
+Play with C<RsyncOpts> at your own risk. 8-)
+
+=item RsyncVerbose
+
+Adds the C<-v> option to c<rsync>, which shows the detail on which
+files were transferred. 
 
 =item SendMail
 
@@ -614,8 +810,8 @@ do:
 
 =item -P PATTERN
 
-A pattern to apply to any C<Directory> or <BackupDirectory>.
-Only directories matching the pattern will be operated on.
+A pattern to apply to any C<Directory>. Only directories matching the
+pattern will be operated on.
 
 To backup all /var/ diretories, do:
 
@@ -630,8 +826,6 @@ any others, do:
 
 =back
 
-=head1
-
 =head1 AUTHOR AND CREDITS
 
 Mike Heins, <mikeh@perusion.com>.
@@ -644,862 +838,4 @@ completely redone.
 The initial principles were elucidated by Mike Rubel.
 
 =cut
-
-
-my %Locale;
-
-my %Defaults = (
-	AlwaysEmail => 'No',
-	ChargeFile => '/var/log/snapback.charges',
-	Compress => 1,
-	cp => "/bin/cp",
-	CreateDir => 'Yes',
-	DailyDir => 'daily',
-	HourlyDir => 'hourly',
-	logfile => '/var/log/snapback',
-	MonthlyDir => 'monthly',
-	MustExceed => '5 minutes',
-	mv => "/bin/mv",
-	Myhost => hostname(),
-	RsyncShell        => 'ssh',
-	RetainPermissions => 1,
-	rm => "/bin/rm",
-	RsyncOpts => "-av --force --delete-excluded  --one-file-system --delete",
-	sendmail => "/usr/sbin/sendmail",
-	WeeklyDir => 'weekly',
-);
-
-my %Boolean = qw(
-	AlwaysEmail       1
-	AutoTime		  1
-	Compress          1
-	CreateDir         1
-	LiteralDirectory  1
-	ManyFiles         1
-	RetainPermissions 1
-);
-
-for(grep /[A-Z]/, keys %Defaults) {
-	$Defaults{lc $_} = $Defaults{$_};
-}
-
-for(grep /[A-Z]/, keys %Boolean) {
-	$Boolean{lc $_} = $Boolean{$_};
-}
-
-## Tool to "rotate" logfiles.
-my $CYCLELOG = "/usr/local/bin/rotate -e 15 -j ";	## 15 files, bzipped.
-
-## Where log entries go
-my @log;
-
-my $myname = $0;
-my $progname = $myname;
-$progname =~ s:.*/::;
-
-my %opt;
-#---------- ---------- ---------- ---------- ---------- ----------
-# Process command-line Arguments + Options
-getopts('c:dfl:p:P:', \%opt) ||  die usage();
-
-if($opt{h}) {
-	usage();
-	exit 2;
-}
-
-my $debug = 0;
-
-my $config_file;
-
-my @config_tries = qw(
-	/etc/snapback2.conf
-	/etc/snapback/snapback2.conf
-	/etc/snapback.conf
-	/etc/snapback/snapback.conf
-);
-
-if($ARGV[0] and -f "/etc/snapback/$ARGV[0].conf") {
-	$config_file = "/etc/snapback/$ARGV[0].conf";
-}
-else {
-	for(@config_tries) {
-		next unless -e $_;
-		$config_file = $_;
-		last;
-	}
-}
-
-
-my ($hourly, $daily, $weekly);
-
-$hourly = $daily = $weekly =0;
-
-if ($opt{c}) { $config_file = $opt{c};}
-
-die "No config file ($config_file)!\n" unless -e $config_file;
-
-#---------- ---------- ---------- ---------- ---------- ----------
-# Process config file
-my $maincfg = new Config::ApacheFormat
-					 duplicate_directives => 'combine',
-					 root_directive => 'SnapbackRoot',
-					;
-
-$maincfg->read($config_file);
-
-my $cfg = $maincfg;
-
-sub time_to_seconds {
-    my($str) = @_;
-    my($n, $dur);
-
-    ($n, $dur) = ($str =~ m/(\d+)[\s\0]*(\w+)?/);
-    return undef unless defined $n;
-    if (defined $dur) {
-        local($_) = $dur;
-        if (m/^s|sec|secs|second|seconds$/i) {
-        }
-        elsif (m/^m|min|mins|minute|minutes$/i) {
-            $n *= 60;
-        }
-        elsif (m/^h|hour|hours$/i) {
-            $n *= 60 * 60;
-        }
-        elsif (m/^d|day|days$/i) {
-            $n *= 24 * 60 * 60;
-        }
-        elsif (m/^w|week|weeks$/i) {
-            $n *= 7 * 24 * 60 * 60;
-        } 
-        else {
-            return undef; 
-        }
-    }
-
-    $n;
-}
-
-sub send_mail {
-    my($body, $opt) = @_;
-
-	$opt ||= {};
-
-	$opt->{to} ||= get_cfg('AdminEmail');
-
-	$opt->{subject} ||= "Snapback results for " . get_cfg('myhost');
-
-	my %non_header = ();
-	my @headers;
-    
-	for(keys %$opt) {
-		my $hdr = $_;
-		next if $non_header{$_};
-		$hdr =~ s/_+/-/g;
-		$hdr =~ s/-+/-/g;
-		$hdr =~ s/(\w+)/\u$1/g;
-		push @headers, "$hdr: $opt->{$_}";
-	}
-	log_debug("send_mail: to=$opt->{to} subj=$opt->{subject}\n");
-
-    my $ok = 0;
-    my $none;
-    my $using = get_cfg('SendMail');
-
-    if($using =~ /^(none|Net::SMTP)$/i) {
-        $none = 1;
-        $ok = 1;
-    }
-
-    SEND: {
-        last SEND if $none;
-        open(MVMAIL,"|$using -t") or last SEND;
-        my $mime = '';
-        for(@headers) {
-            s/\s*$/\n/;
-            print MVMAIL $_
-                or last SEND;
-        }
-		print MVMAIL "\n";
-        print MVMAIL $body
-            or last SEND;
-		close MVMAIL or last SEND;
-        $ok = ($? == 0);
-    }
-
-	if (!$ok) {
-        log_error("Unable to send mail using %s\nTo: %s\nSubject: %s\n\n%s",
-                $using,
-                $opt->{to},
-                $opt->{subject},
-                $body,
-        );
-    }
-
-	return $ok;
-}
-
-sub is_yes {
-	my $val = shift;
-	$val = lc $val;
-	$val =~ s/\W+//g;
-	my %true = qw(
-		y      1
-		yes    1
-		on     1
-		true   1
-		1      1
-	);
-	$val = $true{$val} || 0;
-	return $val;
-}
-
-sub get_cfg {
-	my $parm = shift;
-	my $block = shift || $cfg;
-	my @vals = $block->get($parm);
-	my $num = scalar(@vals);
-	my $val;
-	if($num == 0) {
-		$val = $Defaults{lc $parm};
-	}
-	elsif(@vals == 1) {
-		$val = $vals[0];
-	}
-	elsif(wantarray) {
-		return @vals;
-	}
-	else {
-		$val = \@vals;
-	}
-
-	if($Boolean{lc $parm}) {
-		$val = is_yes($val);
-	}
-	return $val;
-}
-
-sub build_rsync_opts {
-	my @opts;
-	push @opts, get_cfg('RsyncOpts');
-
-	my $rsync_sh = get_cfg('RsyncShell');
-	log_debug("rsync shell=$rsync_sh");
-	if($rsync_sh and lc($rsync_sh) ne 'none') {
-		unshift @opts, "-e $rsync_sh";
-	}
-
-	my $compress = get_cfg('Compress');
-	log_debug("compress=$compress");
-	unshift @opts, "-z" if $compress;
-
-	my $opts = join " ", @opts;
-    log_debug("build_rsync_opts: $opts");
-	return $opts;
-}
-
-my $myhost = get_cfg('myhost');
-
-if ($opt{d} or get_cfg 'debug' )  {
-	$debug = 1;
-}
-
-my $cp    = get_cfg('cp')    || 'cp';
-my $mv    = get_cfg('mv')    || 'mv';
-my $rm    = get_cfg('rm')    || 'rm';
-my $rsync = get_cfg('rsync') || 'rsync';
-
-# Sanity-check the config file.
-die "Malformed config file: Hourlies must be > 0\n" unless get_cfg('hourlies');
-
-#---------- ---------- ---------- ---------- ---------- ----------
-# Set up logging
-
-sub log_arbitrary {
-	my ($file, $msg) = @_;
-	open TMPLOG, ">> $file"
-		or die "Cannot log to file $file: $!\n";
-	print TMPLOG $msg;
-	close TMPLOG;
-}
-
-sub log_error {
-	my ($msg, @args) = @_;
-	my $logfile = $cfg->get('logfile');
-	my $long = length($msg) > 400;
-
-	$msg = $Locale{$msg} if ! $long and defined $Locale{$msg};
-	if(ref $msg) {
-		my $ref = $msg;
-		$msg = $ref->[0];
-		@args = @args[ @{ $ref->[1] } ];
-	}
-
-	$msg = sprintf($msg, @args) if @args;
-	$msg =~ s/[\r\n]*$/\n/ unless $long;
-	push @log, $msg;
-	log_arbitrary($logfile, $msg);
-}
-
-if($debug) {
-	my $debuglog = get_cfg('debuglog');
-	if($debuglog) {
-		open DEBUG, ">> $debuglog"
-			or die "Can't open debug log $debuglog: $!\n";
-	}
-	else {
-		open DEBUG, ">&STDERR";
-	}
-}
-
-sub log_debug {
-	return unless $debug;
-	my $msg = shift;
-	$msg =~ s/\n*$/\n/;
-	print DEBUG $msg;
-}
-
-my $errors_logged = 0;
-
-my $rsync_log = $opt{l} || "/tmp/rsync_log$$";
-open RSYNC, ">>$rsync_log"
-	or die "Cannot write rsync log $rsync_log: $!\n";
-close RSYNC;
-
-log_error "$myname : $myhost\n";
-my @start_time = localtime();
-my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = @start_time;
-log_error strftime("begin \@ %H:%M:%S %Y/%m/%d...\n", @start_time );
-
-#---------- ---------- ---------- ---------- ---------- ----------
-# Main Body - Loop through the list of clients
-
-my $client_re;
-## Check if we have a pattern of clients to apply to
-if($opt{p}) {
-	$client_re = qr/$opt{p}/
-		or die "Bad regex in -p option '$opt{p}'.\n";
-}
-
-my $dir_re;
-## Check if we have a pattern of client directories to apply to
-if($opt{P}) {
-	$dir_re = qr/$opt{P}/
-		or die "Bad regex in -P option '$opt{P}'.\n";
-}
-
-use Data::Dumper;
-$Data::Dumper::Terse = 1;
-
-my @backups = $cfg->get('backup');
-
-#print Dumper(\@backups);
-
-for(@backups) {
-	if(! ref($_)) {
-		die "Bad backup configuration structure.";
-	}
-	my ($directive, $domain) = @$_;
-	if($client_re) {
-		next unless $domain =~ $client_re;
-	}
-	my $domaincfg = $maincfg->block( $directive => $domain );
-	$cfg = $domaincfg;
-	my @excl = get_cfg('exclude');
-#print Dumper(\@excl);
-
-	my @dirs = get_cfg('directory');
-
-	my $host = get_cfg('backuphost') || $domain;
-	my $literal = get_cfg('LiteralDirectory');
-	for my $d (@dirs) {
-		if($dir_re) {
-			next unless $d =~ $dir_re;
-		}
-		$d =~ s:/*$:/: unless $literal;
-		do_backup($host, $d, \@excl);
-	}
-
-	## Now do the alternative way
-	my @blocks = $cfg->get('backupdir');
-	push @blocks, $cfg->get('backupdirectory');
-	foreach my $bd (@blocks) {
-		if(! ref($bd)) {
-			die "Bad backup structure.";
-		}
-		my ($bdom, $bdir) = @$bd;
-		if($dir_re) {
-			next unless $bdir =~ $dir_re;
-		}
-		my $blockcfg = $domaincfg->block( $bdom => $bdir );
-		$cfg = $blockcfg;
-		my @excl = get_cfg('exclude');
-#print Dumper(\@excl);
-		my @dirs = $bdir;
-		my $host = get_cfg('backuphost') || $domain;
-		my $literal = is_yes(get_cfg('LiteralDirectory'));
-		for my $d (@dirs) {
-			$d =~ s:/*$:/: unless $literal;
-			do_backup($host, $d, \@excl);
-		}
-	}
-}
-
-## clean up log files
-log_error strftime("end \@ %H:%M:%S %Y/%m/%d...\n", localtime() );
-
-## TODO check the rsync log file for errors from rsync
-## - set errors_logged if so
-
-my %charges;
-
-## - create new log file, important info at top, rsync detail at bottom
-GETLOGINFO: {
-	open RSYNC, "< $rsync_log";
-	my $client;
-	while(<RSYNC>) {
-		push @log, $_;
-		if(/^client\s+(.*)/) {
-			$client = $1;
-		}
-		elsif(/^wrote\s+\d+\s+bytes\s+read\s+(\d+)\s+bytes/) {
-			$charges{$client} += $1;
-		}
-	}
-	close RSYNC;
-}
-
-my $charge_time = strftime('%Y%m%d', localtime());
-my $clog = get_cfg('ChargeFile');
-
-for(keys %charges) {
-	log_arbitrary $clog, sprintf("%s:%s:%d\n", $_, $charge_time, $charges{$_});
-}
-
-## email results to admin's
-if (get_cfg('AlwaysEmail') || $errors_logged) {
-	send_mail(join "", @log);
-}
-
-## END
-
-## ---------- ---------- ---------- ---------- ---------- ----------
-## ---------- ---------- ---------- ---------- ---------- ----------
-
-
-## ---------- ---------- ---------- ---------- ---------- ----------
-sub usage {
-  print <<EOU;
-$myname: Rsync/Hard-Link/Snapshot-like backup script.
-
-USAGE: $progname [-c config-file -d ]
-	-c config-file : config file (default: /etc/snapback2.conf)
-	-d : debug mode (default: Off)
-	-f : force backup even if AutoTime says no (default: Off)
-	-p : Pattern to include domains/clients on.
-	-P : Pattern to include directories on.
-EOU
-}
-
-## ---------- ---------- ---------- ---------- ---------- ----------
-sub do_backup {
-	my($fqdn,$dir,$excl) = @_;		## Long form of hostname
-
-
-	## We want long version since we might have many domains
-	my $host = $fqdn;
-
-	my $rotate_all = 0;	## flag for do_rotate routine
-	my $hr_dir = get_cfg('HourlyDir');
-	my $daily_dir = get_cfg('DailyDir');
-	my $weekly_dir = get_cfg('WeeklyDir');
-	my $monthly_dir = get_cfg('MonthlyDir');
-
-	my $dest;
-	my @destlist =  get_cfg('DestinationList');
-
-	if( @destlist = get_cfg('DestinationList')
-		and $destlist[0]
-		and lc($destlist[0]) ne 'none'
-		)
-	{
-		log_debug("DestinationList is " . join(" ", @destlist));
-		my %dest;
-		foreach my $prospect (@destlist) {
-			my $prefix = $prospect . "/" . $host . $dir ;
-			my $backupdir = $prefix . $hr_dir;
-			my $mtime = (stat "$backupdir.0")[9] || 0;
-			$dest{$prospect} = $mtime;
-		}
-
-		my $actual;
-		my $min;
-		for (keys %dest) {
-			if(! defined $min) {
-				$min = $dest{$_};
-				$actual = $_;
-			}
-			elsif($min > $dest{$_}) {
-				$min = $dest{$_};
-				$actual = $_;
-			}
-		}
-		$dest = $actual;
-		log_debug("Selected DestinationList destination $dest");
-	}
-	else {
-		$dest = get_cfg('Destination');
-		log_debug("destination from Destination is $dest");
-	}
-
-	if(! $dest) {
-		log_error("Refuse to do backup for %s%s without destination.", $host, $dir);
-		return;
-	}
-
-	my $prefix = $dest . "/" . $host . $dir ;
-	my $backupdir = $prefix . $hr_dir;
-
-	## ----------
-	## STEP 1: check the clock and verify if we are just doing 
-	##  the hourly backups, or also the daily/weekly/monthlies.
-
-	## If the timestamp on the current backup dir does not match
-	## todays date, then this must be the first run after midnight,
-	## so we  check the dailies/weeklies/monthlies also.
-	## Not very efficient, since we check this for each backup set
-	## that we run, instead of just once for all.  Oh well.
-
-	## Check the file
-	my $mtime = (stat "$backupdir.0")[9];
-	my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($mtime);
-	my $backup_date = $yday;
-
-    my $hr_backup = get_cfg('Hourlies');
-
-	if($hr_backup < 1) {
-		log_error("Hourly backup must be greater than or equal to 1.");
-		return;
-	}
-
-	## This mode doesn't back up unless the formula
-	## 
-	##    (24 / $hr_backup - 1) * 60 * 60 > time() - $mtime
-	## 
-	## is satisfied.
-	if(! $opt{f} and get_cfg('AutoTime')) {
-		my $must_hours = 24 / $hr_backup - 0.5;
-		my $must_exceed = $must_hours * 60 * 60;
-		if(my $min_exceed = get_cfg('MustExceed')) {
-			$min_exceed = time_to_seconds($min_exceed);
-			if($min_exceed > $must_exceed) {
-				$must_hours = sprintf "%.1f", $min_exceed / 60 / 60;
-				$must_exceed = $min_exceed;
-				log_debug("Setting minimum exceed time $must_hours hours.");
-			}
-		}
-		my $interval = time() - $mtime;
-		unless ($interval > $must_exceed) {
-			my $real_hours = sprintf "%.1f", $interval / 60 / 60;
-			my $msg = sprintf(	
-						"Skipping backup of %s%s, only %s hours old, want %s hours",
-						$fqdn, $dir, $real_hours, $must_hours,
-					  );
-			log_debug($msg);
-			return;
-		}
-	}
-
-    log_debug "DEBUG: backup_date=$backup_date dir=$backupdir\n";
-
-	## Check the clock
-	($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
-
-	log_debug "DEBUG: yday=$yday dir=$backupdir\n";
-
-    ## we assume (dangerous I know) that if the timestamp on the directory
-    ## is not the same date as today, then it must be yesterday.  In any
-    ## case, this is then the first run after midnight today.
-    my ($do_dailies, $do_weeklies, $do_monthlies );
-	if ($backup_date != $yday)  {
-		$do_dailies = 1;	
-		log_debug "DEBUG: do_dailies=true\n";
-		
-		if ($mday == 1) { $do_monthlies = 1;}  ## ... And first of month.
-		if ($wday == 0) { $do_weeklies = 1;}   ## ... And First of Week.
-	}
-
-    ## ----------
-    ## STEP 2: housekeeping - is the backup destination directory 
-    ##  set up? Make it if CreateDir option is set.
-	unless (-d $prefix) {
-		if (-e $prefix) {
-			die "Destination $prefix is not a directory\n";
-		}
-		elsif( get_cfg('CreateDir') ) {
-			File::Path::mkpath($prefix)
-				or die "Unable to make directory $prefix";
-		}
-		else {
-			die "Missing destination $prefix\n";
-		}
-	}
-
-	## Process the exclusions
-	my $e_opts;
-	if($excl) {
-		my @excl;
-		if(ref($excl) ne 'ARRAY') {
-			$excl  = [ split /[\s,]+/, $excl ];
-		}
-		for (@$excl) {
-			push @excl, qq{--exclude="$_"};
-		}
-		$e_opts = join " ", @excl;
-	}
-
-  ## ----------
-  ## STEP 3: Process Hourly backups
-
-	## Figure out which rotation method
-	my $many_files = get_cfg('ManyFiles');
-	my $retain;
-
-	if(get_cfg('RetainPermissions')) {
-		## This puts the kibosh on ManyFiles
-		if($many_files) {
-			log_error(
-				"%s and %s are mutually exclusive, unsetting %s",
-				'RetainPermissions', 
-				'ManyFiles', 
-				'RetainPermissions', 
-			);
-		}
-		else {
-			$retain = 1;
-			$rotate_all = 1;
-		}
-	}
-
-	## 3.1: Rotate older backups
-
-	log_debug "DEBUG: do_rotate($hr_backup,$backupdir)";
-	
-	if($many_files) {
-		do_rotate_reuse($hr_backup, $backupdir, $rotate_all);
-	}
-	else {
-		do_rotate($hr_backup, $backupdir, $rotate_all);
-	}
-
-	## 3.2: Hard link from the newest backup: 
-	if (! $many_files and ! $retain and -d "$backupdir.0") { 
-		log_debug "DEBUG: Hard Link newest backup\n";
-		system("$cp -al $backupdir.0 $backupdir.1") == 0
-			or die "FAILED: $cp -al $backupdir.0 $backupdir.1";
-	} 	
-
-	my $extra_ropts = '';
-	if($retain and -d "$backupdir.1") {
-		my $bdir = "$backupdir.1";
-		$bdir =~ s:.*/::;
-		$e_opts .= " --link-dest=../$bdir";
-	}
-
-	## Get the rsync options
-	my $r_opts = build_rsync_opts();
-
-	my $rsh = lc get_cfg('RsyncShell');
-
-	my $xfer_dir;
-	if (! $rsh or $rsh eq 'none') {
-		$xfer_dir = $dir;
-	}
-	else {
-		$xfer_dir = "$fqdn:$dir";
-	}
-
-	## 3.3:
-	## Now rsync from the client dir into the latest snapshot 
-	## (notice that rsync behaves like cp --remove-destination by
-	## default, so the destination is unlinked first.  If it were not
-	## so, this would copy over the other snapshot(s) too!
-
-	my $command_line = "$rsync $r_opts $e_opts $xfer_dir $backupdir.0";
-	log_debug "DEBUG: $command_line\n";
-	log_arbitrary $rsync_log, "client $fqdn\n";
-	log_arbitrary $rsync_log, "--\n$command_line\n\n"; 
-	system ("$command_line >> $rsync_log") == 0
-	  or die "FAILED: $command_line >> $rsync_log";
-
-	# update the mtime of hourly.0 to reflect the snapshot time
-	system ("touch $backupdir.0");
-
-	## ----------
-	## STEP 4: Process Daily/Weekly/Monthly backups
-	## -- simpler than above, the rsync is already done.  We just need
-	## to "rotate" the old backups, and then hard link to the
-	## newest hourly backup from yesterday.  NOTE that will be the
-	##  .1 version, not the .0 version -- the .0 version is from today.
-
-	my $yesterdays_hourly = "$backupdir.0";
-	$rotate_all=1;	## flag for do_rotate routine
-
-	## Daily Backups - similar steps to above, rotate, hard link
-	if ($do_dailies) {
-	  $backupdir = $prefix . $daily_dir;
-	  do_rotate(get_cfg('Dailies'), $backupdir, $rotate_all);
-
-	  ## No rsync necessary, just hard-link from the most-recent hourly.
-	  if (-d "$yesterdays_hourly") { 
-		system("$cp -al $yesterdays_hourly $backupdir.0") == 0
-		or die "FAILED: $cp -al $yesterdays_hourly $backupdir.0";
-	  } 	
-	}
-
-  ## Weekly Backups
-  if ($do_weeklies) {
-    $backupdir = $prefix . $weekly_dir;
-    do_rotate(get_cfg('Weeklies'), $backupdir, $rotate_all);
-    if (-d "$yesterdays_hourly") { 
-      system("$cp -al $yesterdays_hourly $backupdir.0") == 0
-      or die "FAILED: $cp -al $yesterdays_hourly $backupdir.0";
-    } 	
-  }
-
-  ## Monthly Backups
-  if ($do_monthlies) {
-    $backupdir = $prefix . $monthly_dir;
-    do_rotate(get_cfg('Monthlies'), $backupdir, $rotate_all);
-    if (-d "$yesterdays_hourly") { 
-      system("$cp -al $yesterdays_hourly $backupdir.0") == 0
-      or die "FAILED: $cp -al $yesterdays_hourly $backupdir.0";
-    } 	
-  }
-}
-
-
-## ---------- ---------- ---------- ---------- ---------- ----------
-# Age/rotate the old backup directories.
-# -- the backup dirs are named like: back.0, back.1, back.2
-# -- so the count is 3 (3 backups)
-# -- we deleted the oldest (back.2) and move the next-oldest up
-#    so back.2 becomes back.3, back.1 becomes, back.2, etc.
-# -- then make a hard link from back.0 to back.1
-# $maxbackups = number of copies they keep,  we count from Zero,
-# so for 4 copies, we'd have 0,1,2,3.  In the comments below
-# we'll give examples assuming a $maxbackup of 4.
-
-sub do_rotate {
-  my ($maxbackups, $dir, $rotate_all) = @_;
-  
-  ## Step 1: nothing to do if they're only keeping 1 copy
-  if (($maxbackups == 1) && ($rotate_all==0)) { return ; }
-
-  ## Step 2: delete the oldest copy.  (eg: $dir.3)
-  my $count = $maxbackups - 1;
-  my $countplus = $maxbackups - 1;
-
-  if (-d "$dir.$count") {
-    log_debug "DEBUG: $rm -rf $dir.$count\n";
-    system("$rm -rf $dir.$count") == 0
-      or die "FAILED: $rm -rf $dir.$count";
-    }
-  $count--;
-
-  ## Step 3: rotate/rename the "middle" copies (eg: $dir.1,2,3)
-  ## DO NOTHING with the most recent backup (eg: $dir.0) of hourlies.
-  ## Rotate same as the rest for dailies/weeklies/etc.
-
-  my $smallest;
-
-  if ($rotate_all) { $smallest = 0 } else {$smallest = 1};
-
-  while ($count >= $smallest) {
-    #log_debug "DEBUG: count = $count";
-    if (-d "$dir.$count") { 
-      log_debug "DEBUG: $mv  $dir.$count $dir.$countplus\n";
-      system("$mv $dir.$count $dir.$countplus" ) == 0
-      	or die "FAILED: $mv $dir.$count $dir.$countplus";
-    }
-    $count--; $countplus--;
-  }
-
-}
-
-sub do_rotate_reuse {
-  my ($maxbackups, $dir, $rotate_all) = @_;
-  
-  ## Step 1: nothing to do if they're only keeping 1 copy
-  if (($maxbackups == 1) && ($rotate_all==0)) { return ; }
-
-  ## Step 2: move the oldest copy to .TMP.  (eg: $dir.3)
-  my $count = $maxbackups - 1;
-  my $countplus = $maxbackups - 1;
-
-  if (-d "$dir.TMP") {
-    log_error "$dir.TMP directory existed, removing.\n";
-    log_debug "DEBUG: $rm -rf $dir.TMP\n";
-    system("$rm -rf $dir.TMP") == 0
-      or die "FAILED: $rm -rf $dir.$count";
-    }
-
-  log_debug("DEBUG: called do_rotate with maxbackups=$maxbackups rotate_all=$rotate_all");
-  log_debug("DEBUG: do_rotate count=$count countplus=$countplus");
-  ## Now using John Pelan's suggestion to rotate least-recent to
-  ## .0 for hourlies
-  if(-d "$dir.$count") {
-	    if (! $rotate_all) {
-			log_debug "DEBUG: $mv $dir.$count $dir.TMP\n";
-			system("$mv $dir.$count $dir.TMP") == 0
-			  or die "FAILED: $mv $dir.$count $dir.TMP";
-		}
-	    else {
-			log_debug "DEBUG: $rm -rf $dir.$count\n";
-			system("$rm -rf $dir.$count") == 0
-				or die "FAILED: $rm -rf $dir.$count";
-		}
-  }
-  $count--;
-
-  log_debug("DEBUG: do_rotate count=$count countplus=$countplus");
-
-  ## Step 3: rotate/rename the "middle" copies (eg: $dir.1,2,3)
-  ## Now using Jean Phelan's suggestion to move an expired 
-  ## copy to .0 so linking is reduced.
-
-  my $smallest = 0;
-
-  while ($count >= $smallest) {
-    #log_debug "DEBUG: count = $count";
-	log_debug("DEBUG: do_rotate count=$count countplus=$countplus");
-    if (-d "$dir.$count") { 
-      log_debug "DEBUG: $mv  $dir.$count $dir.$countplus\n";
-      system("$mv $dir.$count $dir.$countplus" ) == 0
-      	or die "FAILED: $mv $dir.$count $dir.$countplus";
-    }
-    $count--; $countplus--;
-  }
-
-  if(! $rotate_all) {
-  	if(-d "$dir.TMP") {
-		log_debug "DEBUG: $mv $dir.TMP $dir.0\n";
-		system("$mv $dir.TMP $dir.0") == 0
-		  or die "FAILED: $mv $dir.TMP $dir.0";
-	}
-	elsif (-d "$dir.1") { 
-	  ## 3.2: Hard link from the newest backup: 
-		log_debug "DEBUG: Hard Link newest backup\n";
-		system("$cp -al $dir.1 $dir.0") == 0
-		  or die "FAILED: $cp -al $dir.0 $dir.1";
-	}
-  }
-
-}
-
-
-## ---------- ---------- ---------- ---------- ---------- ----------
-## Need a local "die" equivalent function, to 
-## print an error and clean up, and ensure that the
-## admin's are emailed results.  Tie into the normal end-of-program?
-
 

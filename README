@@ -10,6 +10,8 @@ following features:
 	  and yearly basis.
 	* Changes configuration to Apache-style plain-text configuration
 	  files.
+	* Places most functions in a Backup::Snapback module which
+	  is called by a frontend script.
 	* Can be repeatedly called and if AutoTime is set, it will only
 	  make backups when the proper amount of time has passed.
 	* Allows multiple backup destinations to split the backup

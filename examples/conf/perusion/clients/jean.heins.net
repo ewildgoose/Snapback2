@@ -2,8 +2,8 @@
 	DestinationList /space
 	Hourlies 2
 	Directory /home/langanjl/
-	<BackupDir /var/mail/>
+	<Directory /var/mail/>
 		Hourlies 4
-	</BackupDir>
+	</Directory>
 </Backup>
 

@@ -7,12 +7,12 @@
 	Directory /home/phsat/
 	Directory /home/tag/
 	Directory /home/value/
-	<BackupDir /var/lib/mysql/>
+	<Directory /var/lib/mysql/>
 		DestinationList /mnt/backup2 /mnt/backup4
 		Monthlies 3
-	</BackupDir>
-	<BackupDir /var/lib/pgsql/>
+	</Directory>
+	<Directory /var/lib/pgsql/>
 		DestinationList /mnt/backup2 /mnt/backup4
 		Monthlies 3
-	</BackupDir>
+	</Directory>
 </Backup>

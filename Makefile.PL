@@ -14,7 +14,7 @@ sub initialize {
 	my %X;
 	$X{INSTALLDIRS}	= "perl";
 	$X{clean} = {
-		FILES => join(" ", 'scripts/initp.pl', @scripts),
+		FILES => join(" ", 'scripts/initp.pl', @scripts, 'b_target', 'b_source'),
 	};
 	$X{EXE_FILES}	= [ @scripts ];
 	$X{PL_FILES}	= { 'relocate.util' => [ @scripts ] };
@@ -44,6 +44,7 @@ WriteMakefile(
     },
 	EXE_FILES => [],
 	PL_FILES => {},
+	PM => { 'Backup/Snapback.pm' => '$(INST_LIBDIR)/Backup/Snapback.pm'},
 	CONFIGURE => \&initialize,
     PREREQ_PM		=> { Config::ApacheFormat => 1.2 }, # e.g., Module::Name => 1.1
     ($] >= 5.005 ?    ## Add these new keywords supported since 5.005

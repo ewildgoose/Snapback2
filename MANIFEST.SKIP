@@ -19,5 +19,6 @@ _$
 ^bin(/|$)
 ^blib(/|$)
 ^pm_to_blib$
-^scripts/.*[a-z]$
+^scripts/.*[a-z2]$
 ^scripts/initp.PL$
+^pod2*

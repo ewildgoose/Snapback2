@@ -21,3 +21,9 @@ Revision history for Snapback2.
 	- fix broken Exclude option
 	- Add Compress option to allow turning off -z
 	- Add RsyncShell option to allow same-machine or NFS copies without rsync
+
+0.05 -- 
+	- Modularize most functions
+	- Change <BackupDirectory ...> to <Directory ...>
+	- Enhance charge file to add total size, xfer rate, etc.
+	- regularize logging/debug
