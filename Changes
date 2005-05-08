@@ -27,3 +27,7 @@ Revision history for Snapback2.
 	- Change <BackupDirectory ...> to <Directory ...>
 	- Enhance charge file to add total size, xfer rate, etc.
 	- regularize logging/debug
+
+0.07 --
+	- Allow use of rsync urls, i.e. system::tag/dir, to back up
+	- Fix status code display

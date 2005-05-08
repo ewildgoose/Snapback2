@@ -18,6 +18,10 @@ sub initialize {
 	};
 	$X{EXE_FILES}	= [ @scripts ];
 	$X{PL_FILES}	= { 'relocate.util' => [ @scripts ] };
+	for(%MV::Default) {
+		$X{$_} = $MV::Default{$_}
+			unless defined $X{$_};
+	}
 	mk_initp(\%X);
 	return \%X;
 }
@@ -33,6 +37,63 @@ sub mk_initp {
 	print INITP ";\n1;";
 	close INITP;
 }
+
+
+my %mv_specific = qw/
+	CP            1
+	RM            1
+	SENDMAIL      1
+	MV            1
+	RSYNC         1
+	RSYNCSHELL    1
+/;
+
+my %delete;
+use Getopt::Long;
+my @saveargs = @ARGV;
+my %optctl = (
+	'junk'			=> sub { 1 },
+	'<>'			=> sub {
+							my ($arg) = @_;
+	warn "checking option $arg\n";
+							my ($opt, $val);
+							if($arg !~ /=/) {
+								$opt = $arg;
+								$val = 1;
+							}
+							else {
+								($opt, $val) = split /=/, $arg, 2;
+							}
+
+							if ($mv_specific{uc $opt}) {
+								$delete{$arg} = 1;
+								$delete{$opt} = 1;
+								$delete{$val} = 1;
+								warn "It was specific arg=$arg\n";
+							}
+
+							$MV::Default{$opt} = $val;
+							return;
+						},
+);
+
+my @options = ( qw/
+	junk
+	<>
+/ );
+
+Getopt::Long::config(qw/permute/);
+GetOptions(\%optctl, @options)
+	or die "Bad option get\n";
+
+#use Data::Dumper;
+#$Data::Dumper::Terse = $Data::Dumper::Indent = 2;
+#print "ARGV: " . Dumper(\@ARGV);
+#print "OPT: " . Dumper(\%MV::Default);
+
+@ARGV = grep ! $delete{$_}, @saveargs;
+
+#warn "ARGV now=" . Dumper(\@ARGV)  . "\n";
 
 WriteMakefile(
     NAME		    => 'Snapback2',

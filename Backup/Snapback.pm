@@ -2,7 +2,7 @@
 
 # Backup::Snapback - routines for Snapback2 rsync backup system
 #
-# $Id: Cart.pm,v 2.10 2003/11/17 14:24:11 mheins Exp $
+# $Id: Snapback.pm,v 1.4 2005/05/08 18:59:51 mike Exp $
 #
 # Copyright (C) 2004 Mike Heins, Perusion <snapback2@perusion.org>
 # Copyright (C) 2002 Art Mulder
@@ -38,9 +38,10 @@ use Carp;
 use POSIX qw/strftime/;
 use strict;
 
-use vars qw/$VERSION $ERROR $errstr/;
+use vars qw/$VERSION $ERROR $errstr %Defaults/;
+no warnings qw/ uninitialized /;
 
-$VERSION = '0.5';
+$VERSION = '0.7';
 
 =head1 NAME
 
@@ -91,7 +92,7 @@ such as the included C<snapback2>. Its methods are:
 
 my %Locale;
 
-my %Defaults = (
+%Defaults = (
 	AlwaysEmail => 'No',
 	ChargeFile => $> == 0 ? '/var/log/snapback.charges' : "$ENV{HOME}/.snapback/snapback.charges",
 	Compress => 1,
@@ -441,7 +442,7 @@ sub build_rsync_opts {
 
 	my $rsync_sh = $self->config(-RsyncShell);
 	$self->log_debug("rsync shell=$rsync_sh");
-	if($rsync_sh and lc($rsync_sh) ne 'none') {
+	if($rsync_sh and lc($rsync_sh) ne 'none' and lc($rsync_sh) ne 'rsync' ) {
 		unshift @opts, "-e $rsync_sh";
 	}
 
@@ -841,6 +842,14 @@ sub backup_directory {
 	$dir        ||= $self->{_directory};
 	my @excl    = $self->config(-exclude);
 
+	my $rsh = lc $self->config(-RsyncShell);
+
+	my $spacer = '';
+
+	if($dir !~ m{^/}) {
+		$spacer = '/' if $rsh eq 'rsync';
+	}
+
 	$self->log_debug("directory=$dir host=$host client=$client");
 	my $rotate_all = 0;	## flag for do_rotate routine
 	my $hr_dir = $self->config(-HourlyDir);
@@ -890,7 +899,7 @@ sub backup_directory {
 		return;
 	}
 
-	my $prefix = $dest . "/" . $client . $dir ;
+	my $prefix = $dest . "/" . $client . $spacer . $dir ;
 	my $backupdir = $prefix . $hr_dir;
 
 	## ----------
@@ -1038,11 +1047,12 @@ sub backup_directory {
 	## Get the rsync options
 	my $r_opts = $self->build_rsync_opts();
 
-	my $rsh = lc $self->config(-RsyncShell);
-
 	my $xfer_dir;
 	if (! $rsh or $rsh eq 'none') {
 		$xfer_dir = $dir;
+	}
+	elsif ($rsh eq 'rsync') {
+		$xfer_dir = "${host}::$dir";
 	}
 	else {
 		$xfer_dir = "$host:$dir";

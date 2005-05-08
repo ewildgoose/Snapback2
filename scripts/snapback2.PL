@@ -33,9 +33,29 @@ use File::Path;
 use POSIX qw/strftime/;
 use strict;
 
+my %localdef;
+
+# $localdef{sendmail} = '~_~SENDMAIL~_~';
+$localdef{sendmail} = '';
+# $localdef{rsyncshell} = '~_~RSYNCSHELL~_~';
+$localdef{rsyncshell} = '';
+# $localdef{rsync} = '~_~RSYNC~_~';
+$localdef{rsync} = '';
+# $localdef{rm} = '~_~RM~_~';
+$localdef{rm} = '';
+# $localdef{mv} = '~_~MV~_~';
+$localdef{mv} = '';
+# $localdef{cp} = '~_~CP~_~';
+$localdef{cp} = '';
+
+for(keys %localdef) {
+	next unless $localdef{$_};
+	$Backup::Snapback::Defaults{$_} = $localdef{$_};
+}
+
 use vars qw/$VERSION/;
 
-$VERSION = '0.5';
+$VERSION = '0.7';
 
 =head1 NAME
 
@@ -158,7 +178,7 @@ for my $configfile (@configs) {
 
 	my $log_ary = $snap->{_log} || [];
 	open CMDLOG, $snap->config(-commandlog)
-		or carp("Can't open command log: $!\n");
+		or warn("Can't open command log: $!\n");
 	send_mail( join("", @$log_ary, <CMDLOG>), \%opt);
 	close CMDLOG;
 
@@ -212,12 +232,14 @@ sub send_mail {
     }
 
 	if (!$ok) {
-        warn("Unable to send mail using %s\nTo: %s\nSubject: %s\n\n%s",
-                $using,
-                $opt->{to},
-                $opt->{subject},
-                $body,
-        );
+        my $msg = sprintf(
+						"Unable to send mail using %s\nTo: %s\nSubject: %s\n\n%s",
+						$using,
+						$opt->{to},
+						$opt->{subject},
+						$body,
+					);
+        warn($msg);
     }
 
 	return $ok;
@@ -640,7 +662,8 @@ will be considerable.
 This option, when set to I<Yes> in the C<Backup> container (or globally)
 will cause the outdated backup directory to be moved to the prospective
 next backup directory. Rsync then operates on that directory, and while
-transfer bandwidth might be greater
+transfer bandwidth might be greater, overall system overhead will be
+much less.
 
 To set in your C<snapback.conf>:
 
@@ -716,7 +739,9 @@ The following options are set by C<snapback2> options:
 =item -e
 
 Set by the C<RsyncShell> directive. If C<RsyncShell> is I<none>, no
--e option is passed. 
+-e option is passed. In addition, if C<RsyncShell> is I<rsync>, the
+host name is appended with C<::> instead of C<:> to use proper
+rsync URLs.
 
 =item --link-dest=DIR
 
