@@ -1,11 +1,11 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         Snapback2
-version:      0.7
+version:      0.8
 version_from: scripts/snapback2.PL
 installdirs:  perl
 requires:
     Config::ApacheFormat:          1.2
 
 distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.17
+generated_by: ExtUtils::MakeMaker version 6.30

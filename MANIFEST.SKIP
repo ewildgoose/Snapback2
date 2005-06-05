@@ -19,6 +19,9 @@ _$
 ^bin(/|$)
 ^blib(/|$)
 ^pm_to_blib$
+^Backup/Snapback.pm\..*$
 ^scripts/.*[a-z2]$
 ^scripts/initp.PL$
 ^pod2*
+^contrib$
+^contrib/.*

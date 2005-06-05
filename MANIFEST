@@ -10,10 +10,12 @@ examples/conf/snapback.conf
 Makefile.PL
 MANIFEST			This list of files
 MANIFEST.SKIP
-META.yml			Module meta-data (added by MakeMaker)
+META.yml
 README
 relocate.util
 scripts/snap_charge.PL
 scripts/snapback2.PL
 scripts/snapback_loop.PL
+scripts/snapcopy.PL
 t/1.t
+t/2.t

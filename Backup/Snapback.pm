@@ -45,7 +45,7 @@ $VERSION = '0.7';
 
 =head1 NAME
 
-Backup::Snapback -- routines for support of rsync-based snapshot backup
+Backup::Snapback - routines for support of rsync-based snapshot backup
 
 =head1 SYNOPSIS
 
@@ -127,6 +127,7 @@ my %Boolean = qw(
 	RsyncVerbose      1
 	AlwaysEmail       1
 	AutoTime		  1
+	IgnoreVanished	  1
 	Compress          1
 	CreateDir         1
 	LiteralDirectory  1
@@ -922,6 +923,88 @@ sub backup_directory {
 	if($hr_backup < 1) {
 		$self->log_error("Hourly backup must be greater than or equal to 1.");
 		return;
+	}
+
+	## Check to see if we have a Before statement and don't backup
+	## if it is not in that time
+	my $between;
+	if(! $self->config(-force)
+		and
+		( $self->config(-Before) or $self->config(-After) )
+	   )
+	{
+		my $before =  $self->config(-Before);
+		my $after =  $self->config(-After);
+		for(\$before, \$after) {
+			my $hr;
+			my $min;
+			my $adder = 0;
+			my $orig = $$_;
+			next unless $$_;
+			$$_ =~ s/[\s.]+//g;
+			if($$_ =~ s/([ap])m?$//i) {
+				my $mod = $1;
+				$adder = 12 if $mod =~ /p/;
+			}
+			if($$_ =~ /:/) {
+				($hr, $min) = split /:/, $$_;
+				$hr =~ s/^0+//;
+				$min =~ s/^0+//;
+			}
+			else {
+				$$_ =~ s/\D+//g;
+				if($$_ =~ /^(\d\d?)(\d\d)$/) {
+					$hr = $1;
+					$min = $2;
+				}
+				elsif($$_ =~ /^(\d\d?)$/) {
+					$hr = $1;
+					$min = 0;
+				}
+				else {
+					my $msg = sprintf(
+						"Time of %s not parseable for Before or After",
+						$orig);
+					$self->log_debug($msg);
+					$$_ = '';
+				}
+			}
+			$hr += $adder;
+			$$_ = sprintf('%02d:%02d', $hr, $min);
+		}
+
+		my $current = strftime('%H:%M', localtime());
+		my $stop;
+
+		my @msg;
+		if($before and $after) {
+			if($current gt $before) {
+				$stop = 1 unless $current ge $after;
+			}
+		}
+		elsif($after) {
+			$stop = 1 unless $current ge $after;
+		}
+		elsif($before) {
+			$stop = 1 unless $current lt $before;
+		}
+
+		if($stop) {
+			my $constr = '';
+			if($before) {
+				$constr = "before $before";
+			}
+			if($after) {
+				$constr .= ' or ' if $constr;
+				$constr .= "after $after";
+			}
+			my $msg = sprintf(	
+						"Skipping backup of %s%s, must be %s.",
+						$client, $dir, $constr,
+					  );
+			$self->log_debug($msg);
+			return;
+		}
 	}
 
 	## This mode doesn't back up unless the formula

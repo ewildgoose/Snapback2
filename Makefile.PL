@@ -99,6 +99,7 @@ WriteMakefile(
     NAME		    => 'Snapback2',
     VERSION_FROM	=> 'scripts/snapback2.PL', # finds $VERSION
 	'MAN1PODS' => {
+		'scripts/snapcopy'    => '$(INST_MAN1DIR)/snapcopy.$(MAN1EXT)',
 		'scripts/snapback2'    => '$(INST_MAN1DIR)/snapback2.$(MAN1EXT)',
 		'scripts/snapback_loop'    => '$(INST_MAN1DIR)/snapback_loop.$(MAN1EXT)',
 		'scripts/snap_charge'    => '$(INST_MAN1DIR)/snap_charge.$(MAN1EXT)',

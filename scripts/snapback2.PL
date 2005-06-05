@@ -55,7 +55,7 @@ for(keys %localdef) {
 
 use vars qw/$VERSION/;
 
-$VERSION = '0.7';
+$VERSION = '0.8';
 
 =head1 NAME
 
@@ -414,6 +414,28 @@ The rest of the directives control various facets of the backup.
 Email address to mail errors (or results if AlwaysEmail is set).
 Default blank.
 
+=item After
+
+If set to a valid time, the backup must be done after the time
+specified. If the C<Before> directive is also specified, can also
+be before that time.
+
+Default is not set, allowing backup any time.
+
+Times are local.
+
+Examples:
+
+	Before 7am
+	After  6pm
+
+Allows backup before 7am or after 6pm. The times of 0500 and
+1800 would be equivalent.
+
+	After  6pm
+
+Only allows backup between 1800 and 2359.
+
 =item AlwaysEmail
 
 Always email results even if there is not an error. Target address is
@@ -437,6 +459,28 @@ backup is more than 5.5 hours old. Obviously this means your backup
 should take less than an hour to complete; if you have an extremely
 extensive backup setup that could exceed an hour you will want to break
 it up into separate runs or make the script call frequency greater.
+
+=item Before
+
+If set to a valid time, the backup must be done before the time
+specified. If the C<After> directive is also specified, can also be
+done After that time.
+
+Default is not set, allowing backup any time.
+
+Times are local.
+
+Examples:
+
+	Before 7am
+	After  6pm
+
+Allows backup before 7am or after 6pm. The times of 0500 and
+1800 would be equivalent.
+
+	Before  6am
+
+Only allows backup to start between 0000 and 0559.
 
 =item ChargeFile
 
@@ -617,6 +661,14 @@ times as needed.
 
 The root name of the hourly backup directory, default I<hourly>.
 Not normally changed.
+
+=item IgnoreVanished
+
+Ignore errors from rsync when the error code is only "file has
+vanished". This error usually happens when a PID or other transient file
+goes away.
+
+A yes/no directive, default No.
 
 =item Include
 

@@ -31,3 +31,13 @@ Revision history for Snapback2.
 0.07 --
 	- Allow use of rsync urls, i.e. system::tag/dir, to back up
 	- Fix status code display
+
+0.08 --
+	- Add snapcopy command to allow efficient copy.
+	- snapcopy includes POD docs.
+	- Add Before and After directives to constrain backup to
+	  certain times.
+	- Add IgnoreVanished directive to ignore the "file has vanished"
+	  error from rsync which causes most of the error emails. This
+	  typically happens when a PID or other transient file goes
+	  away.
