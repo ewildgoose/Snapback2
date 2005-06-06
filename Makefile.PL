@@ -10,6 +10,7 @@ sub initialize {
 		snap_charge
 		snapback_loop
 		snapback2
+		snapcopy
 	);
 	my %X;
 	$X{INSTALLDIRS}	= "perl";

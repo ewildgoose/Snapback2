@@ -25,3 +25,5 @@ _$
 ^pod2*
 ^contrib$
 ^contrib/.*
+^b_source.*
+^b_target.*

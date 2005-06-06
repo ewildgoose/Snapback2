@@ -41,3 +41,7 @@ Revision history for Snapback2.
 	  error from rsync which causes most of the error emails. This
 	  typically happens when a PID or other transient file goes
 	  away.
+
+0.09 --
+	- Repeat to yourself -- proper testing includes a try at
+	  "make install".
