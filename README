@@ -1,4 +1,4 @@
-Snapback2 version 0.07
+Snapback2 version 0.10
 ======================
 
 The snapback2 script is an enhancement of Art Mulder's original
@@ -21,7 +21,7 @@ following features:
 There is documentation embedded in the script file -- it is installed
 as a man page by default.
 
-A couple of support scripts, snapback_loop and snap_charge, are
+A few support scripts, snapcopy, snapback_loop, and snap_charge, are
 included.
 
 INSTALLATION

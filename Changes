@@ -45,3 +45,9 @@ Revision history for Snapback2.
 0.09 --
 	- Repeat to yourself -- proper testing includes a try at
 	  "make install".
+
+0.11 --
+    - Add PingCommand directive that specifies command to run
+	  to check connection to target system before backup.
+	- Use help from David Stoergel <lorax_at_lorax_dot_org>
+	  to finish IgnoreVanished.

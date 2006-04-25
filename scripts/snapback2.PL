@@ -55,11 +55,11 @@ for(keys %localdef) {
 
 use vars qw/$VERSION/;
 
-$VERSION = '0.9';
+$VERSION = '0.11';
 
 =head1 NAME
 
-snapback2 -- rsync and hard-link backup script
+snapback2 - rsync and hard-link backup script
 
 =head1 SYNOPSIS
 
@@ -750,6 +750,23 @@ The amount of time the current time must exceed the previous backup
 modification time before a backup will be done, when C<AutoTime> is
 on. Default is C<5 minutes>.
 
+=item PingCommand
+
+A shell command which is run to determine whether the target
+host is up and running. A true (zero) exit status indicates that
+backup should be done, a non-true exit status indicates that the
+backup should be skipped.
+
+The following strings are substituted for:
+
+	%h     Host name of backup
+	%d     Directory name being backed up
+	%c     Client name
+
+Example:
+
+	PingCommand  "ping -c 1 -q %h >/dev/null"
+
 =item RetainPermissions
 
 Normally C<snapback2> changes the permissions and ownership of backed-up
@@ -780,9 +797,16 @@ Full path to the C<rsync> program. Default is I<rsync>.
 
 =item RsyncOpts
 
-The options for the rsync program. Default is
+The options for the rsync program. These are specified as
+if they were on the command line.  Default is
 
-  -a --force --delete-excluded  --one-file-system --delete
+   -a --force --delete-excluded  --one-file-system --delete
+
+If you want to change or add your own, below is an example
+RsyncOpts entry in the config file
+
+  RsyncOpts --rsync-path="ssh target_machine rsync" -a --force \
+            --delete-excluded  --one-file-system --delete
 
 The following options are set by C<snapback2> options:
 

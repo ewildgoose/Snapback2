@@ -47,6 +47,7 @@ DOIT: {
 	@ARGV = ($input) if $input;
 	local ($_) = <>;
 
+	no warnings;
 	s{.*\n(#(.*)~_~(\w+)~_~(.*))}{$2 . doit($3) . "$4\n$1"}eg;
 
 	if ($output) {

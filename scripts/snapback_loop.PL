@@ -246,7 +246,12 @@ EOF
 for(;;) {
 	opendir COMMDIR, $COMM_DIR
 		or die "cannot opendir $COMM_DIR: $!\n";
+
 	my @files = grep ! -d "$COMM_DIR/$_", readdir COMMDIR;
+
+	## Get rid of the files we create ourselves
+	@files = grep $_ !~ /\.(inprocess|done)$/, @files;
+
 	for(@files) {
 		my $bname      = $_;
 		my $origname   = "$COMM_DIR/$_";

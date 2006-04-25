@@ -41,7 +41,7 @@ use strict;
 use vars qw/$VERSION $ERROR $errstr %Defaults/;
 no warnings qw/ uninitialized /;
 
-$VERSION = '0.7';
+$VERSION = '0.9';
 
 =head1 NAME
 
@@ -106,6 +106,7 @@ my %Locale;
 	mv => "/bin/mv",
 	Myhost => hostname(),
 	RsyncShell        => 'ssh',
+	IgnoreVanished    => 'No',
 	Rsync        => 'rsync',
 	RsyncVerbose => 0,
 	RetainPermissions => 1,
@@ -120,6 +121,7 @@ my %None = qw(
 	ChargeFile	    1
 	AdminEmail	    1
 	DestinationList 1
+	PingCommand     1
 );
 
 my %Boolean = qw(
@@ -439,7 +441,15 @@ sub build_rsync_opts {
 	my $self = shift;
 	my @opts;
 	my $main_opts = $self->config(-RsyncOpts);
-	push @opts, $main_opts;
+
+    # If user supplies their own -RsyncOpts config returns and array
+    # that needs to be turned into a scalar
+    # -- patch from Jay Strauss
+    if (ref $main_opts eq 'ARRAY') {
+			$main_opts = join " ", @$main_opts;
+    }
+
+    push @opts, $main_opts;
 
 	my $rsync_sh = $self->config(-RsyncShell);
 	$self->log_debug("rsync shell=$rsync_sh");
@@ -858,6 +868,17 @@ sub backup_directory {
 	my $weekly_dir = $self->config(-WeeklyDir);
 	my $monthly_dir = $self->config(-MonthlyDir);
 
+    my $hr_backup = $self->config(-Hourlies);
+
+	if($hr_backup == 1) {
+		$self->log_error("Hourly backup must be zero or two, one is not valid.");
+		return;
+	}
+
+	if(! $hr_backup) {
+		$hr_dir = $self->config(-DailyDir);
+	}
+
 	my $dest;
 	my @destlist =  $self->config(-DestinationList);
 
@@ -867,9 +888,11 @@ sub backup_directory {
 		)
 	{
 		$self->log_debug("DestinationList is " . join(" ", @destlist));
+		my $pdir = $dir;
+		$pdir = "/$pdir" unless $pdir =~ m{^/};
 		my %dest;
 		foreach my $prospect (@destlist) {
-			my $prefix = $prospect . "/" . $client . $dir ;
+			my $prefix = $prospect . "/" . $client . $pdir ;
 			my $backupdir = $prefix . $hr_dir;
 			my $mtime = (stat "$backupdir.0")[9] || 0;
 			$dest{$prospect} = $mtime;
@@ -917,13 +940,6 @@ sub backup_directory {
 	my $mtime = (stat "$backupdir.0")[9] || 0;
 	my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($mtime);
 	my $backup_date = $yday;
-
-    my $hr_backup = $self->config(-Hourlies);
-
-	if($hr_backup < 1) {
-		$self->log_error("Hourly backup must be greater than or equal to 1.");
-		return;
-	}
 
 	## Check to see if we have a Before statement and don't backup
 	## if it is not in that time
@@ -1013,7 +1029,7 @@ sub backup_directory {
 	## 
 	## is satisfied.
 	if(! $self->config(-force) and $self->config(-AutoTime)) {
-		my $must_hours = 24 / $hr_backup - 0.5;
+		my $must_hours = ( 24 / ($hr_backup || 1) ) - 0.5;
 		my $must_exceed = $must_hours * 60 * 60;
 		if(my $min_exceed = $self->config(-MustExceed)) {
 			$min_exceed = time_to_seconds($min_exceed);
@@ -1035,6 +1051,21 @@ sub backup_directory {
 		}
 	}
 
+	if(my $pc = $self->config(-pingcommand)) {
+		if(ref $pc eq 'ARRAY') {
+			$pc = join " ", @$pc;
+		}
+		# Command should return 0 to allow backup
+		$pc =~ s/\%h/$host/g;
+		$pc =~ s/\%d/$dir/g;
+		$pc =~ s/\%c/$client/g;
+		system $pc;
+		if($?) {
+			$self->log_debug("Ping command '$pc' returned false, skipping.");
+			return;
+		}
+	}
+
     $self->log_debug("backup_date=$backup_date dir=$backupdir\n");
 
 	## Check the clock
@@ -1047,8 +1078,10 @@ sub backup_directory {
     ## case, this is then the first run after midnight today.
     my ($do_dailies, $do_weeklies, $do_monthlies );
 	if ($backup_date != $yday)  {
-		$do_dailies = 1;	
-		$self->log_debug("do_dailies=true\n");
+		if($hr_backup) {
+			$do_dailies = 1;	
+			$self->log_debug("do_dailies=true\n");
+		}
 		
 		if ($mday == 1) { $do_monthlies = 1;}  ## ... And first of month.
 		if ($wday == 0) { $do_weeklies = 1;}   ## ... And First of Week.
@@ -1191,13 +1224,16 @@ sub backup_directory {
 
 	close BCOMMAND
 	  or do {
-	  	 my $msg = $self->log_error("FAILED with status %s: %s\ncommand was: %s",
-		 					$? << 8,
-							$!,
-		 					$command_line,
-						);
-	  	 $self->error($msg);
-		 return undef;
+	  		my $stat = $? >> 8;
+            unless ($self->config(-IgnoreVanished) && $stat == 24) {
+				my $msg = $self->log_error("FAILED with status %s: %s\ncommand was: %s",
+					$stat,
+					$!,
+					$command_line,
+				);
+				$self->error($msg);
+				return undef;
+        	}
 		};
 
 	if($clog) {
