@@ -60,3 +60,6 @@ Revision history for Snapback2.
       and that could cause a problem when the target system was down on
       that day. Thanks to Matthias (Matthias.Pfafferodt at the excellent
       domain mapfa.de).
+
+0.912 --
+    - Silly me, ran afoul of CPAN's numbering restrictions.
