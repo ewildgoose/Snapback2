@@ -63,3 +63,6 @@ Revision history for Snapback2.
 
 0.912 --
     - Silly me, ran afoul of CPAN's numbering restrictions.
+
+0.913 --
+    - Didn't know they checked contained modules too, sigh.

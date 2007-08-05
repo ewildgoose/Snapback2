@@ -41,7 +41,7 @@ use strict;
 use vars qw/$VERSION $ERROR $errstr %Defaults/;
 no warnings qw/ uninitialized /;
 
-$VERSION = '0.12';
+$VERSION = '0.913';
 
 =head1 NAME
 
