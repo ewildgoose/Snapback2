@@ -2,7 +2,7 @@
 
 # Backup::Snapback - routines for Snapback2 rsync backup system
 #
-# $Id: Snapback.pm,v 1.4 2005/05/08 18:59:51 mike Exp $
+# $Id: Snapback.pm,v 1.5 2006/08/23 14:58:10 mike Exp $
 #
 # Copyright (C) 2004 Mike Heins, Perusion <snapback2@perusion.org>
 # Copyright (C) 2002 Art Mulder
@@ -41,7 +41,7 @@ use strict;
 use vars qw/$VERSION $ERROR $errstr %Defaults/;
 no warnings qw/ uninitialized /;
 
-$VERSION = '0.9';
+$VERSION = '0.12';
 
 =head1 NAME
 
@@ -453,8 +453,10 @@ sub build_rsync_opts {
 
 	my $rsync_sh = $self->config(-RsyncShell);
 	$self->log_debug("rsync shell=$rsync_sh");
+	$rsync_sh =~ s/'/\\'/g;
+
 	if($rsync_sh and lc($rsync_sh) ne 'none' and lc($rsync_sh) ne 'rsync' ) {
-		unshift @opts, "-e $rsync_sh";
+		unshift @opts, "-e '$rsync_sh'";
 	}
 
 	if($self->config(-chargefile) and ! $self->config(-RsyncVerbose)) {
@@ -474,6 +476,16 @@ sub build_rsync_opts {
 	return $opts;
 }
 
+sub output_timestamp {
+	my $self = shift;
+	my $fh = shift;
+
+	# retrieve and print the current time stamp to the log file
+	my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) = localtime(time);
+	printf $fh "%4d-%02d-%02d %02d:%02d:%02d  ",
+	        $year+1900,$mon+1,$mday,$hour,$min,$sec;
+}
+
 #---------- ---------- ---------- ---------- ---------- ----------
 # Set up logging
 
@@ -488,6 +500,7 @@ sub log_arbitrary {
 		$fha->{$file} = $sym;
 	}
 	my $fh = $fha->{$file};
+	$self->output_timestamp($fh);
 	print $fh $msg;
 }
 
@@ -552,6 +565,9 @@ sub log_debug {
 	return unless $fh = $self->{_debug};
 	my $msg = shift;
 	$msg =~ s/\n*$/\n/;
+
+	$self->output_timestamp($fh);
+
 	print $fh "$self->{debugtag}$msg";
 }
 
@@ -936,10 +952,21 @@ sub backup_directory {
 	## Not very efficient, since we check this for each backup set
 	## that we run, instead of just once for all.  Oh well.
 
-	## Check the file
+	## Check the directories
+	## - hourly backup
 	my $mtime = (stat "$backupdir.0")[9] || 0;
 	my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($mtime);
 	my $backup_date = $yday;
+	## - weekly backup
+        my $backupdir_weekly = $prefix . $weekly_dir;
+	my $mtime_weekly = (stat "$backupdir_weekly.0")[9] || 0;
+	($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($mtime_weekly);
+	my $backup_date_weekly = $yday;
+	## - monthly backup
+        my $backupdir_monthly = $prefix . $monthly_dir;
+	my $mtime_monthly = (stat "$backupdir_monthly.0")[9] || 0;
+	($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($mtime_monthly);
+	my $backup_date_monthly = $yday;
 
 	## Check to see if we have a Before statement and don't backup
 	## if it is not in that time
@@ -993,15 +1020,10 @@ sub backup_directory {
 		my $stop;
 
 		my @msg;
-		if($before and $after) {
-			if($current gt $before) {
-				$stop = 1 unless $current ge $after;
-			}
-		}
-		elsif($after) {
+		if($after) {
 			$stop = 1 unless $current ge $after;
 		}
-		elsif($before) {
+		if($before) {
 			$stop = 1 unless $current lt $before;
 		}
 
@@ -1077,14 +1099,42 @@ sub backup_directory {
     ## is not the same date as today, then it must be yesterday.  In any
     ## case, this is then the first run after midnight today.
     my ($do_dailies, $do_weeklies, $do_monthlies );
+	$self->log_debug("backup_date: $backup_date");
 	if ($backup_date != $yday)  {
 		if($hr_backup) {
 			$do_dailies = 1;	
-			$self->log_debug("do_dailies=true\n");
+			$self->log_debug("do_dailies=true");
 		}
 		
-		if ($mday == 1) { $do_monthlies = 1;}  ## ... And first of month.
-		if ($wday == 0) { $do_weeklies = 1;}   ## ... And First of Week.
+		## do weekly backup if
+		## - the last one is more than 7 days in the past
+		##	yday(today) - yday(last weekly backup) > 7
+		## - check for turn of the year
+		##	yday(today) - yday(last weekly backup) < 0 &&
+		##	yday(today)+365 - yday(last weekly backup) > 7
+		$self->log_debug("backup_date_weekly: $backup_date_weekly");
+		if (($yday - $backup_date_weekly) > 7 ||
+		    (($yday - $backup_date_weekly) < 0 &&
+		     ($yday+365 - $backup_date_weekly) > 7)
+		   ) {
+		    $do_weeklies = 1;
+		    $self->log_debug("do_weeklies=true");
+ 		}
+
+		## do monthly backup if
+		## - the last one is more than 30 days in the past
+		##	yday(today) - yday(last monthly backup) > 30
+		## - check for turn of the year
+		##	yday(today) - yday(last weekly backup) < 0 &&
+		##	yday(today)+365 - yday(last weekly backup) > 30
+		$self->log_debug("backup_date_monthly: $backup_date_monthly");
+		if (($yday - $backup_date_monthly) > 30 ||
+		    (($yday - $backup_date_monthly) < 0 &&
+		     ($yday+365 - $backup_date_monthly) > 30)
+		   ) {
+		    $do_monthlies = 1;
+		    $self->log_debug("do_monthlies=true");
+		}
 	}
 
     ## ----------

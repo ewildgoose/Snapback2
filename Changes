@@ -51,3 +51,12 @@ Revision history for Snapback2.
 	  to check connection to target system before backup.
 	- Use help from David Stoergel <lorax_at_lorax_dot_org>
 	  to finish IgnoreVanished.
+
+0.12 --
+    - Add Timestamp to debug output
+    - Matthias Pfafferodt contributed change to weekly/monthly backup so
+      it is done if more than 7 days or 30 days have elapsed. Before, it
+      would not work unless it was run on first day of week or month,
+      and that could cause a problem when the target system was down on
+      that day. Thanks to Matthias (Matthias.Pfafferodt at the excellent
+      domain mapfa.de).
