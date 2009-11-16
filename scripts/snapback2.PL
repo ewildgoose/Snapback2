@@ -55,7 +55,7 @@ for(keys %localdef) {
 
 use vars qw/$VERSION/;
 
-$VERSION = '0.913';
+$VERSION = '0.914';
 
 =head1 NAME
 
@@ -159,7 +159,7 @@ for my $configfile (@configs) {
 		$snap->log_debug("No email sent, AdminEmail set to none.");
 		next;
 	}
-	my $logfile = $snap->config(-CommandLog);
+	my $logfile = $snap->config(-commandlog);
 	my $subject;
 	my $opt;
 	if($snap->{_errors}) {
@@ -177,10 +177,10 @@ for my $configfile (@configs) {
 	);
 
 	my $log_ary = $snap->{_log} || [];
-	open CMDLOG, $snap->config(-commandlog)
-		or warn("Can't open command log: $!\n");
-	send_mail( join("", @$log_ary, <CMDLOG>), \%opt);
-	close CMDLOG;
+	if (open CMDLOG, $logfile) {
+		send_mail( join("", @$log_ary, <CMDLOG>), \%opt);
+		close CMDLOG;
+	}
 
 }
 
@@ -531,14 +531,14 @@ Example:
 
 	Debug  4
 
-=item DebugFile
+=item DebugLog
 
 Normally debug output goes to STDERR, but if you want it sent
 to a file specify the file with this directive.
 
 Example:
 
-	DebugFile /tmp/snapback.debug
+	DebugLog /tmp/snapback.debug
 
 =item Destination
 
@@ -889,7 +889,7 @@ Fails if one of those is not found.
 
 =item -d 
 
-Turns on debug output. If C<DebugFile> is set, will go there, otherwise
+Turns on debug output. If C<DebugLog> is set, will go there, otherwise
 goes to the standard error output.
 
 =item -l logfile

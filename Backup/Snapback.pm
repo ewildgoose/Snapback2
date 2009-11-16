@@ -41,7 +41,7 @@ use strict;
 use vars qw/$VERSION $ERROR $errstr %Defaults/;
 no warnings qw/ uninitialized /;
 
-$VERSION = '0.913';
+$VERSION = '0.914';
 
 =head1 NAME
 
@@ -238,7 +238,9 @@ sub new {
 	}
 
 	if($self->config(-debug)) {
-		my $debuglog = $self->config(-debuglog);
+		my $debuglog = $self->config(-debuglog) 
+			|| $self->config(-debugfile) ### deprecated, remove in 2011
+			;
 		my $debugtag = $self->config(-debugtag);
 		$self->{debugtag} = $debugtag ? "$debugtag: " : '';
 		
@@ -1037,8 +1039,8 @@ sub backup_directory {
 				$constr .= "after $after";
 			}
 			my $msg = sprintf(	
-						"Skipping backup of %s%s, must be %s.",
-						$client, $dir, $constr,
+						"Skipping backup of %s%s%s, must be %s.",
+						$client, ($rsh eq 'rsync' ? '::' : ''), $dir, $constr,
 					  );
 			$self->log_debug($msg);
 			return;
@@ -1065,8 +1067,8 @@ sub backup_directory {
 		unless ($interval > $must_exceed) {
 			my $real_hours = sprintf "%.1f", $interval / 60 / 60;
 			my $msg = sprintf(	
-						"Skipping backup of %s%s, only %s hours old, want %s hours",
-						$client, $dir, $real_hours, $must_hours,
+						"Skipping backup of %s%s%s, only %s hours old, want %s hours",
+						$client, ($rsh eq 'rsync' ? '::' : ''), $dir, $real_hours, $must_hours,
 					  );
 			$self->log_debug($msg);
 			return;
@@ -1104,6 +1106,9 @@ sub backup_directory {
 		if($hr_backup) {
 			$do_dailies = 1;	
 			$self->log_debug("do_dailies=true");
+		}
+		else {
+			$hr_backup = $self->config(-Dailies);
 		}
 		
 		## do weekly backup if

@@ -66,3 +66,9 @@ Revision history for Snapback2.
 
 0.913 --
     - Didn't know they checked contained modules too, sigh.
+
+0.914
+	- Add patches from Jurgen Walch <jwalch@plumsoft.de> to allow Hourlies 0,
+	  and no email (even with AlwaysEmail) if no backup done.
+	- Improve snapcopy to allow transfer of only one snapshot type, along with
+	  transferring that via SSH.

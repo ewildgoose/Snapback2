@@ -37,7 +37,7 @@ my $prog = $0;
 $prog =~ s:.*/::;
 
 my %opt;
-getopts('dvM:R:r:', \%opt);
+getopts('dvM:R:r:s:', \%opt);
 
 my $rsync = $opt{r} || 'rsync';
 
@@ -59,6 +59,7 @@ $prog -- copy Snapback directories without increasing size
 usage: $prog [-v] [-R rsync] [-r path] srcdir [srcdir2 ..] targdir
 
 	-h             Show this message
+	-s snapshot.n  Transfer only this snapshot directory (i.e. monthly.2)
 	-v             Show some progress
 	-r /path/to/rm Remove leading path from source directories
 	-R /path/to    Program calls simpy 'rsync' by default
@@ -130,7 +131,18 @@ You can match the behavior of the first example with:
 
 my $targdir = pop @ARGV;
 
--d $targdir or die "$targdir: not a directory.\n$USAGE";
+my $ssh;
+my $host;
+my $hostbase;
+
+if($targdir =~ m{:/}) {
+	warn "Assuming $targdir is an SSH host with key access, and that only one hourly.0 is to be transferred.\n";
+	$ssh = 1;
+	($host,$hostbase) = split /:/, $targdir;
+}
+else {
+	-d $targdir or die "$targdir: not a directory.\n$USAGE";
+}
 
 my @sources;
 
@@ -146,6 +158,7 @@ my %base;
 my $wanted = sub {
 	return unless -d $_;
 	return unless /^(hourly|daily|monthly|weekly)\.\d+$/;
+	$File::Find::prune = 1;
 	my $type = $1;
 	my @stat = stat(_);
 	my $mtime = $stat[9];
@@ -173,11 +186,21 @@ for my $basedir (@dirs) {
 	my @mkcmd = 'mkdir';
 	push @mkcmd, '-p';
 	push @mkcmd, '-v' if $opt{v};
-	push @mkcmd, $basedir;
+
+	my $mkdir = $basedir;
+	if($ssh) {
+		unshift @mkcmd, $host ;
+		unshift @mkcmd, 'ssh';
+		$hostbase and $mkdir = "$hostbase/$mkdir";
+	}
+	push @mkcmd, $mkdir;
 
 	if($opt{d}) {
 		print join " ", @mkcmd;
 		print "\n";
+	}
+	elsif($ssh) {
+		system @mkcmd;
 	}
 	else {
 		File::Path::mkpath($basedir, $opt{v});
@@ -188,10 +211,26 @@ for my $basedir (@dirs) {
 	}
 
 	my @order = sort { $dref->{$a} <=> $dref->{$b} } keys %$dref;
+	if($opt{s}) {
+		@order = grep $_ eq $opt{s}, @order;
+	}
+
+	if(! @order) {
+		warn "Unable to find snapshot $opt{s} for $basedir, skipping.\n";
+		next;
+	}
+
+	if($ssh) {
+		my $last = pop @order;
+		@order = ($last);
+	}
 	for (my $i = 0; $i < @order; $i++) {
 		my @args = $rsync;
 		my $fromdir = "$basedir/$order[$i]/";
 		my $todir = "$targdir/$cpdir/$order[$i]/";
+		if($ssh) {
+			$todir = "$targdir/$cpdir/";
+		}
 		push @args, '-a';
 		push @args, '-v' if $opt{v};
 		push @args, qq{--link-dest=$targdir/$cpdir/$order[$i - 1]} if $i > 0;
